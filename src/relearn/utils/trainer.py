@@ -1,15 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def train(env, exp, pie, epochs, esteps, tsteps, sample_size, report, env_test_reset, verbose=2):
+def train(exp, pie, epochs, esteps, sample_size, report, texp, tsteps, treset, verbose=2):
 
     if verbose>0:
         print('~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~  TRAINER: INFO')
-        print('observation_space', env.observation_space) # = gym.spaces.box.Box(-inf, inf, shape=(env.LEN,))
-        print('action_space', env.action_space) # = gym.spaces.discrete.Discrete(env.A)
+        print('observation_space', exp.env.observation_space) # = gym.spaces.box.Box(-inf, inf, shape=(env.LEN,))
+        print('action_space', exp.env.action_space) # = gym.spaces.discrete.Discrete(env.A)
         exp.render()
-        print('mem.capacity',exp.mem.capacity, 
-                  'decayF', exp.decayF.__name__)
         pie.render()
         # learning loop params
         print('epochs', epochs)
@@ -18,7 +16,7 @@ def train(env, exp, pie, epochs, esteps, tsteps, sample_size, report, env_test_r
         print('sample_size', sample_size)
 
         print('report', report)
-        print('env_test_reset', env_test_reset)
+        print('treset', treset)
         print('verbose', verbose)
         print('~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~  !TRAINER: INFO')
 
@@ -40,16 +38,19 @@ def train(env, exp, pie, epochs, esteps, tsteps, sample_size, report, env_test_r
         # report 
         if epoch%report==0:
             # test updated policy
-            steps, reward = exp.test(pie=pie, steps=tsteps, reset_env=env_test_reset)
+            steps, reward = texp.test(pie=pie, steps=tsteps, reset_env=treset)
             hist.append([steps, reward])
             if verbose>1:
                 print(' --> epoch:', epoch, ' steps:', steps, ' reward:', reward )
 
     # end of lerning
     print('~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~  TRAINER: END\tTotal Epochs:', epoch)
-    pie.render()
+    
 
     if verbose>0:
+        exp.render()
+        pie.render()
+        
         # plot test reward history
         fig, ax = plt.subplots(2,1,figsize=(16,10), sharex=True)
         h = np.array(hist)
@@ -65,12 +66,12 @@ def train(env, exp, pie, epochs, esteps, tsteps, sample_size, report, env_test_r
 
 
 
-def test(env, exp, pie, epochs, tsteps, verbose=2):
+def test(texp, pie, epochs, tsteps, treset=True, verbose=2):
 
     if verbose>0:
         print('~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~  TESTER: INFO')
-        print('observation_space', env.observation_space) # = gym.spaces.box.Box(-inf, inf, shape=(env.LEN,))
-        print('action_space', env.action_space) # = gym.spaces.discrete.Discrete(env.A)
+        print('observation_space', texp.env.observation_space) # = gym.spaces.box.Box(-inf, inf, shape=(env.LEN,))
+        print('action_space', texp.env.action_space) # = gym.spaces.discrete.Discrete(env.A)
 
         pie.render()
         # testing loop params
@@ -83,16 +84,17 @@ def test(env, exp, pie, epochs, tsteps, verbose=2):
     epoch, hist = 0, [] # history of test rewards ( and timesteps )
     while (epoch<epochs):
         epoch+=1
-        steps, reward = exp.test(pie=pie, steps=tsteps, reset_env=True)
+        steps, reward = texp.test(pie=pie, steps=tsteps, reset_env=treset)
         hist.append([steps, reward])
         if verbose>1:
             print(' --> epoch:', epoch, ' steps:', steps, ' reward:', reward )
 
-    # end of lerning
+    # end of test
     print('~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~  TESTER: END\tTotal Epochs:', epoch)
-    pie.render()
+    
 
     if verbose>0:
+        #pie.render()
         # plot test reward history
         fig, ax = plt.subplots(2,1,figsize=(16,10), sharex=True)
         h = np.array(hist)
