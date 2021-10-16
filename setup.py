@@ -8,14 +8,14 @@ setup(
     url =           "https://github.com/Nelson-iitp/relearn",
     author =        "Nelson.S",
     author_email =  "nelson_2121cs07@iitp.ac.in",
-    description =   'RL',
+    description =   '~ R E L E A R N ~',
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages =      ['relearn'],
     license =       'Apache2.0',
     package_dir =   { '' : 'src'},
     #classifiers =   []
-    install_requires = ["matplotlib","numpy"],
+    install_requires = ["matplotlib","numpy","torch"],
     #include_package_data=True
 )
 
