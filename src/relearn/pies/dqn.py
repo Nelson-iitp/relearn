@@ -82,19 +82,17 @@ class PIE:
         self.base_model = get_model(state_dim, LL, action_dim, self.device, summary=True)
         self.Q = get_model(state_dim, LL, action_dim, self.device,summary=False)
         self.T = get_model(state_dim, LL, action_dim, self.device,summary=False) if (self.tuf>0) else self.Q
+        
         self.clear()
         
-        
-    def predict(self, state):
-        st = T.tensor(self.mapper(state), dtype=T.float32)
-        qvals = self.Q(st)
-        m,i =  T.max(  qvals , dim=0  )
-        return i.item()
+
 
     def _clearQ(self):
         self.Q.load_state_dict(self.base_model.state_dict())
+        self.Q.eval()
         if (self.tuf>0):
             self.T.load_state_dict(self.base_model.state_dict())
+            self.T.eval()
             
     def clear(self):
         self._clearQ()
@@ -103,10 +101,14 @@ class PIE:
         self.train_count=0
         self.update_count=0
 
-    
+        
+    def predict(self, state):
+        st = T.tensor(self.mapper(state), dtype=T.float32)
+        qvals = self.Q(st)
+        m,i =  T.max(  qvals , dim=0  )
+        return i.item()
 
     def _prepare_batch(self, memory, size):
-    
         batch = memory.sample(size)
         steps = len(batch)
         cS, nS, act, reward, done = [], [], [], [], []

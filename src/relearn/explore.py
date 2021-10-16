@@ -66,7 +66,6 @@ class EXP:
         
     def stepT(self, pie):
         act = pie.predict(self.cS)
-        #cS = self.cS 
         self.cS, reward, self.done, _ = self.env.step(act)
         transition = (act, reward, self.done) 
         self.memory.commit(transition)
