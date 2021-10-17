@@ -25,11 +25,6 @@ class QnetRELUn(nn.Module):
         logits = self.SEQL(x)
         return logits
 
-def get_model(state_dim, LL, action_dim, device, summary=False):
-    model = QnetRELUn(state_dim, LL, action_dim).to(device)
-    if summary:
-        print(model)
-    return model
         
 class PIE:
 
@@ -57,11 +52,11 @@ class PIE:
         
     """
     
-    def __init__(self, state_dim, LL, action_dim, opt, cost, lr, dis, mapper, double=False, tuf=0,  device='cpu', seed=None): 
-    
+    def __init__(self, state_dim, LL, action_dim, opt, cost, lr, dis, mapper, double=False, tuf=0,  device='cpu', seed=None, p=print): 
+        
         if double and tuf<=0:
             raise ValueError("double DQN requires a target network, set self.tuf>0")
-
+        self.p = p
         self.lr, self.dis  = lr, dis
         self.state_dim=state_dim
         self.action_dim=action_dim
@@ -70,12 +65,12 @@ class PIE:
         self.double=double
         self.mapper=mapper
         self.device = device
-        print('Using ',self.device,'device')
+        self.p('Using ',self.device,'device')
         self.opt=opt
         self.cost=cost
-        self.base_model = get_model(state_dim, LL, action_dim, self.device, summary=True)
-        self.Q = get_model(state_dim, LL, action_dim, self.device,summary=False)
-        self.T = get_model(state_dim, LL, action_dim, self.device,summary=False) if (self.tuf>0) else self.Q
+        self.base_model = QnetRELUn(state_dim, LL, action_dim).to(self.device)
+        self.Q = QnetRELUn(state_dim, LL, action_dim).to(self.device)
+        self.T = QnetRELUn(state_dim, LL, action_dim).to(self.device) if (self.tuf>0) else self.Q
         self.clear()
 
     def clear(self):
@@ -153,21 +148,21 @@ class PIE:
         return
 
     def render(self, mode=0):
-        print('=-=-=-=-==-=-=-=-=\nQ-NET\n=-=-=-=-==-=-=-=-=')
-        print(self.Q)
-        print('Train Count:', self.train_count)
+        self.p('=-=-=-=-==-=-=-=-=\nQ-NET\n=-=-=-=-==-=-=-=-=')
+        self.p(self.Q)
+        self.p('Train Count:', self.train_count)
         if (self.tuf>0):
-            print('Update Count:', self.update_count)
-        print('=-=-=-=-==-=-=-=-=!Q-net=-=-=-=-==-=-=-=-=')
+            self.p('Update Count:', self.update_count)
+        self.p('=-=-=-=-==-=-=-=-=!Q-net=-=-=-=-==-=-=-=-=')
         return
         
     def save(self, path):
-        print("=-=-=-=-==-=-=-=-=\n Save@",path," \n=-=-=-=-==-=-=-=-=")
+        self.p("=-=-=-=-==-=-=-=-=\n Save@",path," \n=-=-=-=-==-=-=-=-=")
         T.save(self.Q, path)
         return
         
     def load(self, path):
-        print("=-=-=-=-==-=-=-=-=\n Load@",path," \n=-=-=-=-==-=-=-=-=")
+        self.p("=-=-=-=-==-=-=-=-=\n Load@",path," \n=-=-=-=-==-=-=-=-=")
         self.base_model = T.load(path)
         self._clearQ()
         return

@@ -26,7 +26,8 @@ class PIE:
         #  { 'si' : [ [ Q(si,a1), Q(si,a2), Q(si,a3), ... ], #visited ] }
         """
         
-    def __init__(self, nos_actions, lr=0.5, dis=1, mapper=str):
+    def __init__(self, nos_actions, lr=0.5, dis=1, mapper=str, p=print):
+        self.p=p
         self.lr, self.dis = lr, dis           
         self.A = nos_actions
         self.Q={}                 # the Q-dictionary where Q-values are stored
@@ -80,18 +81,18 @@ class PIE:
             for i in self.Q:
                 res+=str(i) + '\t\t' + str(self.Q[i]) + '\n'
             res = res + '=-=-=-=-==-=-=-=-='
-        print(res)
+        self.p(res)
         return
         
     def save(self, path):
-        print("=-=-=-=-==-=-=-=-=\n Save@",path," \n=-=-=-=-==-=-=-=-=")
+        self.p("=-=-=-=-==-=-=-=-=\n Save@",path," \n=-=-=-=-==-=-=-=-=")
         f=open(path, 'w')
         f.write(json.dumps(self.Q, sort_keys=False, indent=4))
         f.close()
         return
         
     def load(self, path):
-        print("=-=-=-=-==-=-=-=-=\n Load@",path," \n=-=-=-=-==-=-=-=-=")
+        self.p("=-=-=-=-==-=-=-=-=\n Load@",path," \n=-=-=-=-==-=-=-=-=")
         f=open(path, 'r')
         self.Q = json.loads(f.read())
         f.close()
