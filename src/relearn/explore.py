@@ -100,13 +100,11 @@ class EXP:
                 for k in range(moves):
                     ts += self.episode(pie)
                     self.epsilon = min(max( decay(self.epsilon, (k+1)/moves, ts, True), self.epsilon_min ), self.epsilon_max) 
-                    #print(self.epsilon)
             else:
                 ts = moves
                 for k in range(moves):
                     done = self.step(pie)
                     self.epsilon = min(max( decay(self.epsilon, (k+1)/moves, k+1, done), self.epsilon_min ), self.epsilon_max) 
-                    #print(self.epsilon)
         return ts
     
     def summary(self):

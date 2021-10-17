@@ -4,9 +4,8 @@ import numpy as np
 
 import torch as T
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-
+#import torch.optim as optim
+#import torch.nn.functional as F
 
 class QnetRELUn(nn.Module):
     def __init__(self, state_dim, LL, action_dim):
@@ -15,19 +14,11 @@ class QnetRELUn(nn.Module):
         self.n_layers = len(LL)
         if self.n_layers<1:
             raise ValueError('need at least 1 layers')
-        
-        #nos = [state_dim]
-        #for i in range(self.n_layers):
-        #    nos.append(LL[i])
-        #nos.append(action_dim)
-        
-        
         layers = [nn.Linear(state_dim, LL[0]), nn.ReLU()]
         for i in range(self.n_layers-1):
             layers.append(nn.Linear(LL[i], LL[i+1]))
             layers.append(nn.ReLU())
         layers.append(nn.Linear(LL[-1], action_dim))
-        
         self.SEQL = nn.Sequential( *layers )
 
     def forward(self, x):
@@ -64,7 +55,7 @@ class PIE:
         
     """
     
-    def __init__(self, state_dim, LL, action_dim, device, lr, dis, mapper, double=False, tuf=0, seed=None): 
+    def __init__(self, state_dim, LL, action_dim, device, opt, cost, lr, dis, mapper, double=False, tuf=0, seed=None): 
     
         if double and tuf<=0:
             raise ValueError("double DQN requires a target network, set self.tuf>0")
@@ -78,15 +69,19 @@ class PIE:
         self.mapper=mapper
         self.device = device
         print('Using ',self.device,'device')
-        
+        self.opt=opt
+        self.cost=cost
         self.base_model = get_model(state_dim, LL, action_dim, self.device, summary=True)
         self.Q = get_model(state_dim, LL, action_dim, self.device,summary=False)
         self.T = get_model(state_dim, LL, action_dim, self.device,summary=False) if (self.tuf>0) else self.Q
-        
         self.clear()
-        
 
-
+    def clear(self):
+        self._clearQ()
+        self.optimizer = self.opt(self.Q.parameters(), lr=self.lr) # opt = optim.Adam
+        self.loss_fn = self.cost()  # cost=nn.MSELoss()
+        self.train_count=0
+        self.update_count=0
     def _clearQ(self):
         self.Q.load_state_dict(self.base_model.state_dict())
         self.Q.eval()
@@ -94,12 +89,7 @@ class PIE:
             self.T.load_state_dict(self.base_model.state_dict())
             self.T.eval()
             
-    def clear(self):
-        self._clearQ()
-        self.optimizer = optim.Adam(self.Q.parameters(), lr=self.lr)
-        self.loss_fn = nn.MSELoss()
-        self.train_count=0
-        self.update_count=0
+
 
         
     def predict(self, state):
