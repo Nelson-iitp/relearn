@@ -27,9 +27,8 @@ class EXP:
             self.env._max_episode_steps
     """
     
-    def __init__(self, env, cap, epsilon, test=False, p=print):
-        self.p=p
-        self.memory = MEM(capacity=cap, test=test, p=self.p)
+    def __init__(self, env, cap, epsilon, test=False):
+        self.memory = MEM(capacity=cap, test=test)
         self.random = np.random.default_rng()
         self.epsilon_min, self.epsilon_max = epsilon
         self.epsilon = epsilon[0] # initially set min as start value
@@ -127,26 +126,21 @@ class EXP:
         
         si = 0
         cnt = 0
-        rews=[]
-        self.p('# \tIndex Range \tSteps \tReward \tDone')
+        header = np.array([' #','Start','End', 'Steps','Reward','Done'])
+        rows= []
         for ei in self.memory.episodes:
             cnt+=1
             ep = npe[si:ei] # ep = [action, reward, done]
             aseq, rsum = ep[:,0], np.sum(ep[:,1]) # action sequence, total reward
-            rews.append(rsum)
-            self.p(cnt, '\t[', si,':',ei,']\t',len(aseq),'\t',rsum,'\t ', int(ep[-1,2]))
+            row = []
+            rows.append([ cnt, si, ei, len(aseq), rsum, int(ep[-1,2]) ])
             si = ei
-        
-        self.p('~~~~~~~~~~~~~~~~~~')
-        self.p('Total Episodes:', cnt)
-        self.p('Min Reward:', np.min(rews))
-        self.p('Max Reward:', np.max(rews))
-        self.p('Avg Reward:', np.mean(rews))
-        self.p('~~~~~~~~~~~~~~~~~~')
-        
         if clean_up:
             del self.memory.episodes[-1]
-        return rews
+            
+        rows = np.array(rows)
+        avg_reward =  np.mean(rows[:, 4])
+        return header, rows, avg_reward
 #---------------------------------------------------------
 
 class MEM:
@@ -206,39 +200,40 @@ class MEM:
     def read_cols(self, iSamp, iCol_from, iCol_to):
         return [ self.mem[i][iCol_from:iCol_to] for i in iSamp ]
 
-    def renderE(self, low, high, step=1):
-        self.p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
-        self.p("Status ["+str(self.count)+" | "+str(self.capacity)+ "]")
-        self.p('------------------@SLOTS------------------')
+    def renderE(self, low, high, step=1, p=print):
+        
+        p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
+        p("Status ["+str(self.count)+" | "+str(self.capacity)+ "]")
+        p('------------------@SLOTS------------------')
         
         for i in range (low, high, step):
-            self.p('SLOT: [', i, ']')
+            p('SLOT: [', i, ']')
             for j in range(len(self.mem[i])):
-                self.p('\t',self.render_schema[j],':', self.mem[i][j])
-            self.p('-------------------')
-        self.p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
+                p('\t',self.render_schema[j],':', self.mem[i][j])
+            p('-------------------')
+        p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
         return     
-    def renderT(self, low, high, step=1):
-        self.p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
-        self.p("Status ["+str(self.count)+" | "+str(self.capacity)+ "]")
+    def renderT(self, low, high, step=1, p=print):
+        p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
+        p("Status ["+str(self.count)+" | "+str(self.capacity)+ "]")
         
         res = 'SLOT \t'
         for j in range(len(self.render_schema)):
                 res+= (self.render_schema[j]+'\t')
-        self.p(res)
+        p(res)
         
         for i in range (low, high, step):
             res=str(i)+' \t'
             for j in range(len(self.mem[i])):
                 res+=str(self.mem[i][j])+' \t'
-            self.p(res)
-        self.p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
+            p(res)
+        p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
         return
-    def render_all(self):
-        self.render(0, self.count)
+    def render_all(self, p=print):
+        self.render(0, self.count, p=p)
         return
-    def render_last(self, nos):
-        self.render(-1, -nos, step=-1)
+    def render_last(self, nos, p=print):
+        self.render(-1, -nos, step=-1,  p=p)
         return
 
 

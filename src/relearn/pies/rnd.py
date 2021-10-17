@@ -3,8 +3,7 @@ import random
 class PIE:
     """ Implements Random Policy """
 
-    def __init__(self, nos_actions, p=print):
-        self.p=p
+    def __init__(self, nos_actions):
         self.A = nos_actions
         self.Q = None
         self.train_count=0
@@ -17,8 +16,6 @@ class PIE:
         return qvals
         
     def learn(self, memory, batch_size):
-        self.p('Learning:',  batch_size,' of ', 
-                            memory.count, 'transitions ... updated', self.Q )
         self.train_count+=1
         return
     
@@ -27,16 +24,14 @@ class PIE:
         self.train_count=0
         return
         
-    def render(self, mode=0):
-        self.p("=-=-=-=-==-=-=-=-=\n RANDOM POLICY \n=-=-=-=-==-=-=-=-=")
+    def render(self, mode=0, p=print):
+        p("=-=-=-=-==-=-=-=-=\n RANDOM POLICY \n=-=-=-=-==-=-=-=-=")
         return
     
     def save(self, path):
-        self.p("=-=-=-=-==-=-=-=-=\n Save@",path," \n=-=-=-=-==-=-=-=-=")
         return
         
     def load(self, path):
-        self.p("=-=-=-=-==-=-=-=-=\n Load@",path," \n=-=-=-=-==-=-=-=-=")
         return
         
 #-------------------
