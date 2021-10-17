@@ -36,12 +36,14 @@ class PIE:
     """ 
         Implements DQN based Policy
         
-        state_dim       Observation Space
-        LL              a list of layer sizes for eg. LL=[32,16,8]
-        action_dim      Action Space
-        lr              Learning Rate for DQN Optimizer (ADAM)
+        state_dim       Observation Space Shape
+        LL              List of layer sizes for eg. LL=[32,16,8]
+        action_dim      Action Space (should be discrete)
+        opt             torch.optim     (eg - torch.optim.Adam)
+        cost            torch.nn.<loss> (eg - torch.nn.MSELoss)
+        lr              Learning Rate for DQN Optimizer ()
         dis             discount factor
-        mapper          a mapper from state space to DQN input
+        mapper          a mapper from state space to DQN input eg - lambda x: x.reshape(a,b)
         tuf             target update frequency (if tuf==0 then doesnt use target network)
         double          uses double DQN algorithm (with target network)
         device          can be 'cuda' or 'cpu' 
@@ -55,7 +57,7 @@ class PIE:
         
     """
     
-    def __init__(self, state_dim, LL, action_dim, device, opt, cost, lr, dis, mapper, double=False, tuf=0, seed=None): 
+    def __init__(self, state_dim, LL, action_dim, opt, cost, lr, dis, mapper, double=False, tuf=0,  device='cpu', seed=None): 
     
         if double and tuf<=0:
             raise ValueError("double DQN requires a target network, set self.tuf>0")
