@@ -145,7 +145,7 @@ class EXP:
         
         if clean_up:
             del self.memory.episodes[-1]
-        return
+        return rews
 #---------------------------------------------------------
 
 class MEM:
