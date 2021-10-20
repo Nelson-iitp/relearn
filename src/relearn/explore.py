@@ -1,6 +1,7 @@
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+from copy import deepcopy
 #---------------------------------------------------------
 # Defines EXP and MEM
 #---------------------------------------------------------
@@ -146,7 +147,7 @@ class EXP:
 class MEM:
     """ A list based memory for explorer """
 
-    def __init__(self, capacity, test=False, p=print):
+    def __init__(self, capacity, test=False):
         self.capacity = capacity
         self.mem = []
         self.episodes=[]
@@ -164,6 +165,15 @@ class MEM:
             self.render_schema = ('cS', 'nS', 'Action', 'Reward',  'Done')
             
     
+    def clone(self):
+        res = MEM(self.capacity, test=self.test)
+        res.mem = deepcopy(self.mem)
+        res.count = deepcopy(self.count)
+        res.episodes = deepcopy(self.episodes)
+        return res
+        
+        
+        
     def set_seed(self, seed):
         self.random = np.random.default_rng(seed)
     
