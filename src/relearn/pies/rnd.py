@@ -1,5 +1,6 @@
 import random
 
+
 class PIE:
     """ Implements Random Policy """
 
@@ -15,7 +16,7 @@ class PIE:
         qvals = [0 for _ in range(self.A)]
         return qvals
         
-    def learn(self, memory, batch_size):
+    def learn(self, memory, batch):
         self.train_count+=1
         return
     
@@ -24,9 +25,8 @@ class PIE:
         self.train_count=0
         return
         
-    def render(self, mode=0, p=print):
-        p("=-=-=-=-==-=-=-=-=\n RANDOM POLICY \n=-=-=-=-==-=-=-=-=")
-        return
+    def render(self, mode=0):
+        return "=-=-=-=-==-=-=-=-=\n RANDOM POLICY \n=-=-=-=-==-=-=-=-="
     
     def save(self, path):
         return

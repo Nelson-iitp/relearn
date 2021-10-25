@@ -1,6 +1,6 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import json
+
 class PIE:
     """ Implements Dictionary-Based Q-Learning 
     
@@ -52,8 +52,14 @@ class PIE:
             qvals = self.Q[cS][0]
         return qvals
         
-    def learn(self, memory, batch_size):
-        batch = memory.recent(batch_size) # sample most recent 
+    def learn(self, memory, batch):
+        """ memory = explorer's memory
+            batch = indices in memomry, use following
+                    batch = memory.recent(batch_size)
+                    batch = memory.sample(batch_size)
+                    batch = memory.all()
+        """
+        # batch = memory.recent(batch_size) # sample most recent 
         for i in batch:
             cS, nS, act, reward, done = memory.mem[i] 
             cS, nS = self.mapper(cS), self.mapper(nS)
@@ -74,14 +80,14 @@ class PIE:
         self.train_count=0
         return
 
-    def render(self, mode=0, p=print):
+    def render(self, mode=0):
+        """ use mode=1 to view full dictionary """
         res='=-=-=-=-==-=-=-=-=\nDICT: Q-Values  #'+str(len(self.Q))+'\n=-=-=-=-==-=-=-=-=\n'
         if mode>0:
             for i in self.Q:
                 res+=str(i) + '\t\t' + str(self.Q[i]) + '\n'
             res = res + '=-=-=-=-==-=-=-=-='
-        p(res)
-        return
+        return res
         
     def save(self, path):
         f=open(path, 'w')

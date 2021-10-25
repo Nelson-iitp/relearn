@@ -11,14 +11,13 @@ from copy import deepcopy
 
 class EXP:
     """ An explorer that interacts with the environment
-        with greedy-epsilon policy i.e epsilon = exploration prob 
+        with greedy-epsilon policy where epsilon = exploration prob 
         
         Args:
-            env                 base enviroment for exploration
-            cap                 max memory capacity
-            epsilon             for epsilon-greedy exploration
-            test                if True, does not use epsilon-greedy exploration 
-                                     ... and does not store state-vectors in memory
+            env                 base enviroment for exploration (ENV)
+            cap                 max memory capacity (int)
+            epsilonT            tuple = (start_epsilon, min_epsilon, max_epsilon) for epsilon-greedy exploration
+            
             
         self.env must implement:
             self.env.reset()
@@ -28,95 +27,147 @@ class EXP:
             self.env._max_episode_steps
     """
     
-    def __init__(self, env, cap, epsilon, test=False):
-        self.memory = MEM(capacity=cap, test=test)
-        self.random = np.random.default_rng()
-        self.epsilon_min, self.epsilon_max = epsilon
-        self.epsilon = epsilon[0] # initially set min as start value
-        self.test=test
-        if self.test:
-            self.step=self.stepT
-        else:
-            self.step=self.stepE
+    def __init__(self, env, cap, epsilonT):
+        """
+        Create a new explorer
+        Args:
+            env                 base enviroment for exploration (ENV)
+            cap                 max memory capacity (int)
+            epsilonT            tuple = (start_epsilon, min_epsilon, max_epsilon) for epsilon-greedy exploration
+            
+            
+        explorer has following attributes:
+        
+          Environment
+            self.env                    Underlying base environment
+            self.cS, self.done          current state and done flag (obtained by calling env.reset() once at initialization)
+            
+          Memory
+            self.memory                 replay memory (pass cap=math.inf for infinite memory)
+            
+          Epsilon
+            self.epsilon, self.estart, self.emin, self.emax
+            
+          PRNG
+            self.random
+        """
         self.env = env
-        self.reset()  
-
-    def set_seed(self, seed):
-        self.random = np.random.default_rng(seed)
-        
-    def reset(self):
-        self.cS, self.done = self.env.reset(), False
-        
+        self.cS, self.done = self.env.reset(), False  #<---------- calls reset once at initialization
+        self.memory = MEM(capacity=cap)
+        self.estart, self.emin, self.emax = epsilonT
+        self.epsilon = self.estart
+        self.random = np.random.default_rng()
     
-    def stepE(self, pie):
-        act = self.env.action_space.sample() \
-              if (self.random.random(size=1)[0] < self.epsilon) \
-              else pie.predict(self.cS)
-        cS = self.cS 
-        nS, reward, self.done, _ = self.env.step(act)
-        transition = (cS, nS, act, reward, self.done) #<<--- as per MEM.DEFAULT_SCHEMA
+    def reset(self, clear_mem=False, reset_epsilon=False):
+        """ resets environment and optionally resets memory & epsilon """
+        self.cS, self.done = self.env.reset(), False
+        if clear_mem:
+            self.memory.clear()
+        if reset_epsilon:
+            self.epsilon = self.estart
+        return
+            
+    def step(self, pie, test=False):
+        """ explore for one step """
+        
+        # test v/s explore
+        if test:
+        
+            # 1. Choose action          #<--- always use policy to predict actions
+            act = pie.predict(self.cS)
+            
+            # 2. Step in enviroment
+            nS, reward, self.done, _ = self.env.step(act)   
+
+            # 3. Prepare Transition #<<--- as per MEM.DEFAULT_SCHEMA (do not pass state vectors)
+            transition = (None, None, act, reward, self.done) 
+            
+        else:
+            
+            # 1. Choose action          #<--- use random actions or policy to predict actions based on epsilon
+            act = self.env.action_space.sample() \
+                if (self.random.random(size=1)[0] < self.epsilon) \
+                else pie.predict(self.cS)
+                
+            # 2. Step in enviroment
+            cS = self.cS 
+            nS, reward, self.done, _ = self.env.step(act)
+            
+            # 3. Prepare Transition #<<--- as per MEM.DEFAULT_SCHEMA (pass all state vectors)
+            transition = (cS, nS, act, reward, self.done)     
+        
+        # common part
+        
+        # 4. Store transition to memory
         self.memory.commit(transition)
+        
+        # 5. Reset in final state
         if self.done or self.env._elapsed_steps>=self.env._max_episode_steps: 
             self.reset()
-            self.memory.mark()
+            self.memory.mark() #<--- mark episode
             done=True
         else:
             self.cS = nS
             done=False
-        return done
-        
-    def stepT(self, pie):
-        act = pie.predict(self.cS)
-        self.cS, reward, self.done, _ = self.env.step(act)
-        transition = (act, reward, self.done) 
-        self.memory.commit(transition)
-        if self.done or self.env._elapsed_steps>=self.env._max_episode_steps: 
-            self.reset()  
-            self.memory.mark()
-            done=True
-        else:
-            done=False
-        return done
-        
-    def episode(self, pie):
+        return done  #<----- this 'done' is different that 'self.done' as it is true when _max_episode_steps has elapsed and env might not be in final state
+    
+    def episode(self, pie, test=False):
+        """ explore for one episode """
         done, ts = False, 0
         while not done:
-            done = self.step(pie)
+            done = self.step(pie, test=test)
             ts+=1
         return ts
         
-    def explore(self, pie, moves, decay, episodic=False):
-        if self.test:
-            if episodic:
-                ts = 0
-                for k in range(moves):
-                    ts += self.episode(pie)
-            else:
-                ts = moves
-                for k in range(moves):
-                    done = self.step(pie)
-        else:
-            if episodic:
-                ts = 0
-                for k in range(moves):
-                    ts += self.episode(pie)
-                    self.epsilon = min(max( decay(self.epsilon, (k+1)/moves, ts, True), self.epsilon_min ), self.epsilon_max) 
-            else:
-                ts = moves
-                for k in range(moves):
-                    done = self.step(pie)
-                    self.epsilon = min(max( decay(self.epsilon, (k+1)/moves, k+1, done), self.epsilon_min ), self.epsilon_max) 
-        return ts
-    
-    def summary(self):
-        # npe = [action, reward, done]
-        if self.test:
-            npe = np.array(self.memory.read_cols(self.memory.all(), 0, 3 ))  #np.array(self.memory.mem)
-        else:
-            npe = np.array(self.memory.read_cols(self.memory.all(), 2, 5 ))
+    def explore(self, 
+                pie, 
+                moves, 
+                decay=lambda _epsilon, _moves, _t : _epsilon, 
+                episodic=False, 
+                test=False):
+        """ explore for given moves with decaying epsilon 
             
+        Args:
+            pie         Policy for exploration (greedy action)
+            moves       explore for given moves - which can be either 'steps' or 'episodes'
+            episodic    if True, moves means 'episodes' else it means 'steps'
+            test        if True, always use policy(pie) to take action and do not store state vectors in memory
+            decay       a function for decaying epsilon (no decay by default)
+            define decay function as 
+                decay = lambda epsilon, moves, t: new_epsilon 
+                
+        Note: 'decay' triggers after each 'move', if episodic=True, then decays epsilon after each episode
+              't' gives the timesteps of last episode if episodic=True
+                  gives a boolean value indicating 'done' if episodic=False
+            
+        """
+        if episodic:
+            ts = 0
+            for k in range(moves):
+                t += self.episode(pie, test=test) # t is integer
+                ts += t
+                self.epsilon = min(max( decay(self.epsilon, k+1, t), self.epsilon_min ), self.epsilon_max) 
+        else:
+            ts = moves
+            for k in range(moves):
+                t = self.step(pie, test=test) # t is boolean
+                self.epsilon = min(max( decay(self.epsilon, k+1, t), self.epsilon_min ), self.epsilon_max) 
+        return ts
+        
+        
+    def set_seed(self, seed):
+        """ sets new random PRNG using 
+            self.random = np.random.default_rng(seed) """
+        self.random = np.random.default_rng(seed)
+        
+    def summary(self, P=print):
+        """ prepares summary based on memory - useful in testing 
+            set P=lambda *x: None to not print """
+        
+        # choose all transactions from memory and read cols 2 to 5 i.e ('Action', 'Reward',  'Done')
+        npe = np.array(self.memory.read_cols(self.memory.all(), 2, 5 ))
         clean_up=False
-        # assume that memory.mark is corrrectly called()
+        # assume that memory.mark is corrrectly called, find the episode markers
         if len(self.memory.episodes)==0:
             self.memory.episodes.append(self.memory.count)
             clean_up=True
@@ -127,7 +178,7 @@ class EXP:
         
         si = 0
         cnt = 0
-        header = np.array([' #','Start','End', 'Steps','Reward','Done'])
+        header = np.array(['Episode', 'Start', 'End', 'Steps', 'Reward', 'Done'])
         rows= []
         for ei in self.memory.episodes:
             cnt+=1
@@ -138,41 +189,40 @@ class EXP:
             si = ei
         if clean_up:
             del self.memory.episodes[-1]
-            
         rows = np.array(rows)
         avg_reward =  np.mean(rows[:, 4])
+        
+        #  print results
+        P('==========================================================\n')
+        for i in header:
+            P(i+ '\t')
+        for i in range(len(rows)):
+            rowstr = str(i+1) + '\t'
+            for j in range(len(rows[i])):
+                rowstr += str(rows[i][j]) + '\t'
+            P(rowstr)
+        P('\n==========================================================')
         return header, rows, avg_reward
 #---------------------------------------------------------
 
 class MEM:
     """ A list based memory for explorer """
-
-    def __init__(self, capacity, test=False):
+    
+    DEFAULT_SCHEMA = ('cS', 'nS', 'Action', 'Reward',  'Done')
+    
+    def __init__(self, capacity):
         self.capacity = capacity
         self.mem = []
         self.episodes=[]
         self.count = 0
-        self.test = test
-        if self.test:
-            self.render=self.renderT
-        else:
-            self.render=self.renderE
         self.random = np.random.default_rng()
-        
-        if self.test:
-            self.render_schema = ('Action', 'Reward', 'Done')
-        else:
-            self.render_schema = ('cS', 'nS', 'Action', 'Reward',  'Done')
-            
-    
+               
     def clone(self):
-        res = MEM(self.capacity, test=self.test)
+        res = MEM(self.capacity)
         res.mem = deepcopy(self.mem)
         res.count = deepcopy(self.count)
         res.episodes = deepcopy(self.episodes)
         return res
-        
-        
         
     def set_seed(self, seed):
         self.random = np.random.default_rng(seed)
@@ -182,6 +232,7 @@ class MEM:
         self.episodes.clear()
         self.count=0
         return
+        
     def commit(self, transition): 
         if self.count>=self.capacity:
            del self.mem[0:1]
@@ -197,21 +248,24 @@ class MEM:
     def sample(self, batch_size):
         batch_pick_size = min(batch_size, self.count)
         return self.random.integers(0, self.count, size=batch_pick_size)
+        
     def recent(self, batch_size):
         batch_pick_size = min(batch_size, self.count)
         return np.arange(self.count-batch_pick_size, self.count, 1)
+        
     def all(self):
         return np.arange(0, self.count, 1)
         
     def read(self, iSamp):
         return [ self.mem[i] for i in iSamp ]
+        
     def read_col(self, iSamp, iCol):
         return [ self.mem[i][iCol] for i in iSamp ]
+        
     def read_cols(self, iSamp, iCol_from, iCol_to):
         return [ self.mem[i][iCol_from:iCol_to] for i in iSamp ]
 
-    def renderE(self, low, high, step=1, p=print):
-        
+    def render(self, low, high, step=1, p=print):
         p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
         p("Status ["+str(self.count)+" | "+str(self.capacity)+ "]")
         p('------------------@SLOTS------------------')
@@ -219,29 +273,15 @@ class MEM:
         for i in range (low, high, step):
             p('SLOT: [', i, ']')
             for j in range(len(self.mem[i])):
-                p('\t',self.render_schema[j],':', self.mem[i][j])
+                p('\t',MEM.DEFAULT_SCHEMA[j],':', self.mem[i][j])
             p('-------------------')
         p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
         return     
-    def renderT(self, low, high, step=1, p=print):
-        p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
-        p("Status ["+str(self.count)+" | "+str(self.capacity)+ "]")
         
-        res = 'SLOT \t'
-        for j in range(len(self.render_schema)):
-                res+= (self.render_schema[j]+'\t')
-        p(res)
-        
-        for i in range (low, high, step):
-            res=str(i)+' \t'
-            for j in range(len(self.mem[i])):
-                res+=str(self.mem[i][j])+' \t'
-            p(res)
-        p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
-        return
     def render_all(self, p=print):
         self.render(0, self.count, p=p)
         return
+        
     def render_last(self, nos, p=print):
         self.render(-1, -nos, step=-1,  p=p)
         return
