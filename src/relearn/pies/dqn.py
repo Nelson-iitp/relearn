@@ -52,7 +52,7 @@ class PIE:
         
     """
     
-    def __init__(self, state_dim, LL, action_dim, opt, cost, lr, dis, mapper, double=False, tuf=0,  device='cpu', seed=None): 
+    def __init__(self, state_dim, LL, action_dim, opt, cost, lr, dis, mapper, double=False, tuf=0,  device='cpu', path="", seed=None): 
         
         if double and tuf<=0:
             raise ValueError("double DQN requires a target network, set self.tuf>0")
@@ -66,6 +66,7 @@ class PIE:
         self.device = device
         self.opt=opt
         self.cost=cost
+        self.path=path
         self.base_model = QnetRELUn(state_dim, LL, action_dim).to(self.device)
         self.Q = QnetRELUn(state_dim, LL, action_dim).to(self.device)
         self.T = QnetRELUn(state_dim, LL, action_dim).to(self.device) if (self.tuf>0) else self.Q
@@ -111,7 +112,7 @@ class PIE:
                 T.tensor(reward, dtype=T.float32).to(self.device), \
                 T.tensor(done, dtype=T.float32).to(self.device)
 
-    def learn(self, memory, batch_size):
+    def learn(self, memory, batch_size, reg_l2_lambda=0.0):
         steps, indices, cS, nS, act, reward, done = self._prepare_batch(memory, batch_size)
         target_val = self.T(nS)
         if not self.double:
@@ -128,6 +129,11 @@ class PIE:
         target[indices, act[indices]] = updated_q_values[indices]
         loss =  self.loss_fn(pred, target)  #T.tensor()
         
+        if reg_l2_lambda>0: # adding L2 regularization
+            l2_lambda = reg_l2_lambda
+            l2_norm = sum(p.pow(2.0).sum() for p in self.Q.parameters())
+            loss = loss + l2_lambda * l2_norm
+                        
         # this does not happen
         #target[indices, act[indices]] = updated_q_values[indices]*(self.theta) + target[indices, act[indices]]*(1-self.theta)
                                        
@@ -154,11 +160,10 @@ class PIE:
         p('=-=-=-=-==-=-=-=-=!Q-net=-=-=-=-==-=-=-=-=')
         return
         
-    def save(self, path):
-        T.save(self.Q, path)
-        return
+    def save(self, filename):
+        T.save(self.Q, os.path.join(self.path,filename))
         
-    def load(self, path):
-        self.base_model = T.load(path)
+    def load(self, filename):
+        self.base_model = T.load(os.path.join(self.path,filename))
         self._clearQ()
         return

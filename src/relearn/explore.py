@@ -118,11 +118,12 @@ class EXP:
             done = self.step(pie, test=test)
             ts+=1
         return ts
-        
+    def NO_DECAY(_epsilon, _moves, _t):
+        return _epsilon
     def explore(self, 
                 pie, 
                 moves, 
-                decay=lambda _epsilon, _moves, _t : _epsilon, 
+                decay, 
                 episodic=False, 
                 test=False):
         """ explore for given moves with decaying epsilon 
@@ -144,14 +145,14 @@ class EXP:
         if episodic:
             ts = 0
             for k in range(moves):
-                t += self.episode(pie, test=test) # t is integer
+                t = self.episode(pie, test=test) # t is integer
                 ts += t
-                self.epsilon = min(max( decay(self.epsilon, k+1, t), self.epsilon_min ), self.epsilon_max) 
+                self.epsilon = min(max( decay(self.epsilon, k+1, t), self.emin ), self.emax) 
         else:
             ts = moves
             for k in range(moves):
                 t = self.step(pie, test=test) # t is boolean
-                self.epsilon = min(max( decay(self.epsilon, k+1, t), self.epsilon_min ), self.epsilon_max) 
+                self.epsilon = min(max( decay(self.epsilon, k+1, t), self.emin ), self.emax) 
         return ts
         
         
@@ -184,8 +185,8 @@ class EXP:
             cnt+=1
             ep = npe[si:ei] # ep = [action, reward, done]
             aseq, rsum = ep[:,0], np.sum(ep[:,1]) # action sequence, total reward
-            row = []
-            rows.append([ cnt, si, ei, len(aseq), rsum, int(ep[-1,2]) ])
+            row = [cnt, si, ei, len(aseq), rsum, int(ep[-1,2])]
+            rows.append(row)
             si = ei
         if clean_up:
             del self.memory.episodes[-1]
@@ -194,10 +195,12 @@ class EXP:
         
         #  print results
         P('==========================================================\n')
+        hd=""
         for i in header:
-            P(i+ '\t')
+            hd+=(i+ '\t')
+        P(hd)
         for i in range(len(rows)):
-            rowstr = str(i+1) + '\t'
+            rowstr = ""
             for j in range(len(rows[i])):
                 rowstr += str(rows[i][j]) + '\t'
             P(rowstr)
