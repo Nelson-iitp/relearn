@@ -148,6 +148,7 @@ class PIE:
         if (self.tuf>0):
             if self.train_count % self.tuf == 0:
                 self.T.load_state_dict(self.Q.state_dict())
+                self.T.eval()
                 self.update_count+=1
         return
 
