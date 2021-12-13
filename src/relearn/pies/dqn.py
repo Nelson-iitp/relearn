@@ -1,5 +1,6 @@
 
 import os
+from typing import OrderedDict
 import numpy as np
 
 import torch as T
@@ -24,6 +25,16 @@ class QnetRELUn(nn.Module):
     def forward(self, x):
         logits = self.SEQL(x)
         return logits
+
+    def info(self, cap="", P=print):
+        P('--------------------------')
+        P(cap)
+        P('--------------------------')
+        std = self.state_dict()
+        for param in std:
+            print(param, std[param])
+        P('--------------------------')
+
 
         
 class PIE:
@@ -58,6 +69,7 @@ class PIE:
             raise ValueError("double DQN requires a target network, set self.tuf>0")
         self.lr, self.dis  = lr, dis
         self.state_dim=state_dim
+        self.LL = LL
         self.action_dim=action_dim
         self.rand = np.random.default_rng(seed)
         self.tuf = tuf
@@ -79,11 +91,12 @@ class PIE:
         self.train_count=0
         self.update_count=0
     def _clearQ(self):
-        self.Q.load_state_dict(self.base_model.state_dict())
-        self.Q.eval()
-        if (self.tuf>0):
-            self.T.load_state_dict(self.base_model.state_dict())
-            self.T.eval()
+        with T.no_grad():
+            self.Q.load_state_dict(self.base_model.state_dict())
+            self.Q.eval()
+            if (self.tuf>0):
+                self.T.load_state_dict(self.base_model.state_dict())
+                self.T.eval()
             
 
 
@@ -93,6 +106,22 @@ class PIE:
         qvals = self.Q(st)
         m,i =  T.max(  qvals , dim=0  )
         return i.item()
+
+    def qredict(self, state):
+        st = T.tensor(self.mapper(state), dtype=T.float32)
+        qvals = self.Q(st).detach().numpy()
+        qvals -= (np.min(qvals)+1)
+        pvals = qvals/np.sum(qvals)
+        pr =  self.rand.uniform(0,1)
+        #print('pvals',pvals)
+        #print('pr',pr)
+        idx = -1
+        for i in range(1, len(pvals)+1):
+            if pr <= np.sum(pvals[0:i]):
+                idx = i-1
+                break
+        #print('idx',idx)
+        return idx
 
     def _prepare_batch(self, memory, size):
         batch = memory.sample(size)
@@ -147,8 +176,9 @@ class PIE:
 
         if (self.tuf>0):
             if self.train_count % self.tuf == 0:
-                self.T.load_state_dict(self.Q.state_dict())
-                self.T.eval()
+                with T.no_grad():
+                    self.T.load_state_dict(self.Q.state_dict())
+                    self.T.eval()
                 self.update_count+=1
         return
 

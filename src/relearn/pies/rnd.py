@@ -1,17 +1,19 @@
-import random
-
+import numpy as np
 
 class PIE:
     """ Implements Random Policy """
 
-    def __init__(self, nos_actions):
+    def __init__(self, nos_actions, seed=None):
         self.A = nos_actions
         self.Q = None
         self.train_count=0
+        self.rng = np.random.default_rng(seed)
         
     def predict(self, state):
-        return random.randint(0, self.A-1)
-
+        return self.rng.integers(0, self.A-1)
+    def qredict(self, state):
+        return self.rng.integers(0, self.A-1)
+        
     def qvals(self, state):
         qvals = [0 for _ in range(self.A)]
         return qvals

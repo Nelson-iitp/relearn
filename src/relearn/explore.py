@@ -1,4 +1,4 @@
-import random
+
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
@@ -27,7 +27,7 @@ class EXP:
             self.env._max_episode_steps
     """
     
-    def __init__(self, env, cap, epsilonT):
+    def __init__(self, env, cap, epsilonT, mseed=None, seed=None):
         """
         Create a new explorer
         Args:
@@ -52,11 +52,12 @@ class EXP:
             self.random
         """
         self.env = env
+        self.A = self.env.action_space.n
         self.cS, self.done = self.env.reset(), False  #<---------- calls reset once at initialization
-        self.memory = MEM(capacity=cap)
+        self.memory = MEM(capacity=cap, seed=mseed)
         self.estart, self.emin, self.emax = epsilonT
         self.epsilon = self.estart
-        self.random = np.random.default_rng()
+        self.random = np.random.default_rng(seed)
     
     def reset(self, clear_mem=False, reset_epsilon=False):
         """ resets environment and optionally resets memory & epsilon """
@@ -67,14 +68,14 @@ class EXP:
             self.epsilon = self.estart
         return
             
-    def step(self, pie, test=False):
+    def step(self, greedy_pie, rand_pie, test=False):
         """ explore for one step """
         
         # test v/s explore
         if test:
         
             # 1. Choose action          #<--- always use policy to predict actions
-            act = pie.predict(self.cS)
+            act = greedy_pie.predict(self.cS)
             
             # 2. Step in enviroment
             nS, reward, self.done, _ = self.env.step(act)   
@@ -85,9 +86,11 @@ class EXP:
         else:
             
             # 1. Choose action          #<--- use random actions or policy to predict actions based on epsilon
-            act = self.env.action_space.sample() \
+            # NOTE: use self.random instead of self.env.action_space.sample()
+            # self.random.integers(0, self.A) \
+            act =  rand_pie.qredict(self.cS) \
                 if (self.random.random(size=1)[0] < self.epsilon) \
-                else pie.predict(self.cS)
+                else greedy_pie.predict(self.cS)
                 
             # 2. Step in enviroment
             cS = self.cS 
@@ -111,17 +114,18 @@ class EXP:
             done=False
         return done  #<----- this 'done' is different that 'self.done' as it is true when _max_episode_steps has elapsed and env might not be in final state
     
-    def episode(self, pie, test=False):
+    def episode(self, greedy_pie, rand_pie, test=False):
         """ explore for one episode """
         done, ts = False, 0
         while not done:
-            done = self.step(pie, test=test)
+            done = self.step(greedy_pie, rand_pie, test=test)
             ts+=1
         return ts
     def NO_DECAY(_epsilon, _moves, _t):
         return _epsilon
     def explore(self, 
-                pie, 
+                greedy_pie, 
+                rand_pie,
                 moves, 
                 decay, 
                 episodic=False, 
@@ -145,13 +149,13 @@ class EXP:
         if episodic:
             ts = 0
             for k in range(moves):
-                t = self.episode(pie, test=test) # t is integer
+                t = self.episode(greedy_pie, rand_pie,  test=test) # t is integer
                 ts += t
                 self.epsilon = min(max( decay(self.epsilon, k+1, t), self.emin ), self.emax) 
         else:
             ts = moves
             for k in range(moves):
-                t = self.step(pie, test=test) # t is boolean
+                t = self.step(greedy_pie, rand_pie, test=test) # t is boolean
                 self.epsilon = min(max( decay(self.epsilon, k+1, t), self.emin ), self.emax) 
         return ts
         
@@ -213,12 +217,12 @@ class MEM:
     
     DEFAULT_SCHEMA = ('cS', 'nS', 'Action', 'Reward',  'Done')
     
-    def __init__(self, capacity):
+    def __init__(self, capacity, seed=None):
         self.capacity = capacity
         self.mem = []
         self.episodes=[]
         self.count = 0
-        self.random = np.random.default_rng()
+        self.random = np.random.default_rng(seed)
                
     def clone(self):
         res = MEM(self.capacity)

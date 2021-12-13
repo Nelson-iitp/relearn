@@ -26,13 +26,13 @@ class PIE:
         #  { 'si' : [ [ Q(si,a1), Q(si,a2), Q(si,a3), ... ], #visited ] }
         """
         
-    def __init__(self, nos_actions, lr=0.5, dis=1, mapper=str):
+    def __init__(self, nos_actions, lr=0.5, dis=1, mapper=str, seed=None):
         self.lr, self.dis = lr, dis           
         self.A = nos_actions
         self.Q={}                 # the Q-dictionary where Q-values are stored
         self.mapper = mapper      # a function that mapps state vectors to strings
         self.train_count = 0      # counts the number of updates made to Q-values
-        self.random = np.random.default_rng()
+        self.random = np.random.default_rng(seed)
         
     def predict(self, state):
         cS = self.mapper(state)
@@ -63,6 +63,9 @@ class PIE:
         for i in batch:
             cS, nS, act, reward, done = memory.mem[i] 
             cS, nS = self.mapper(cS), self.mapper(nS)
+            #print('cS', type(cS), cS)
+            #print('Q', type(self.Q), self.Q)
+            #print('A', type(self.A), self.A)
             if not cS in self.Q:
                 self.Q[cS] = [[0 for _ in range(self.A)], 1]
             else:
@@ -84,8 +87,12 @@ class PIE:
         """ use mode=1 to view full dictionary """
         res='=-=-=-=-==-=-=-=-=\nDICT: Q-Values  #'+str(len(self.Q))+'\n=-=-=-=-==-=-=-=-=\n'
         if mode>0:
-            for i in self.Q:
-                res+=str(i) + '\t\t' + str(self.Q[i]) + '\n'
+            for x,i in enumerate(self.Q):
+                if mode>1:
+                    rep = str(self.mapper(i))
+                else:
+                    rep = str(x)
+                res+= rep + '\t\t' + str(self.Q[i]) + '\n'
             res = res + '=-=-=-=-==-=-=-=-='
         return res
         
