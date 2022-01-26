@@ -185,16 +185,19 @@ class EXP:
         cnt = 0
         header = np.array(['Episode', 'Start', 'End', 'Steps', 'Reward', 'Done'])
         rows= []
+        aseqs = []
         for ei in self.memory.episodes:
             cnt+=1
             ep = npe[si:ei] # ep = [action, reward, done]
             aseq, rsum = ep[:,0], np.sum(ep[:,1]) # action sequence, total reward
             row = [cnt, si, ei, len(aseq), rsum, int(ep[-1,2])]
             rows.append(row)
+            aseqs.append(aseq)
             si = ei
         if clean_up:
             del self.memory.episodes[-1]
         rows = np.array(rows)
+        aseqs = np.array(aseqs)
         avg_reward =  np.mean(rows[:, 4])
         
         #  print results
@@ -209,7 +212,7 @@ class EXP:
                 rowstr += str(rows[i][j]) + '\t'
             P(rowstr)
         P('\n==========================================================')
-        return header, rows, avg_reward
+        return header, rows, avg_reward, aseqs
 #---------------------------------------------------------
 
 class MEM:

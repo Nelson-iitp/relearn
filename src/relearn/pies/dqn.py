@@ -7,6 +7,11 @@ import torch as T
 import torch.nn as nn
 #import torch.optim as optim
 #import torch.nn.functional as F
+def shape2size(shape):
+    res = 1
+    for d in shape:
+        res*=d
+    return res  
 
 class QnetRELUn(nn.Module):
     def __init__(self, state_dim, LL, action_dim):
@@ -28,15 +33,22 @@ class QnetRELUn(nn.Module):
 
     def info(self, cap="", P=print):
         P('--------------------------')
-        P(cap)
+        P(cap, 'No. Layers:\t', self.n_layers)
         P('--------------------------')
+        # print(2*(pie.Q.n_layers+1)) <-- this many params
         std = self.state_dict()
+        total_params = 0
         for param in std:
-            print(param, std[param])
+            nos_params = shape2size(std[param].shape)
+            P(param, '\t', nos_params, '\t', std[param].shape )
+            total_params+=nos_params
         P('--------------------------')
+        P('PARAMS:\t', f'{total_params:,}') # 
+        P('--------------------------')
+        return total_params
 
 
-        
+ 
 class PIE:
 
     """ 
@@ -182,13 +194,19 @@ class PIE:
                 self.update_count+=1
         return
 
-    def render(self, mode=0, p=print):
-        p('=-=-=-=-==-=-=-=-=\nQ-NET\n=-=-=-=-==-=-=-=-=')
-        p(self.Q)
-        p('Train Count:', self.train_count)
+    def render(self, mode=0, P=print):
+        P('=-=-=-=-==-=-=-=-=\nQ-NET\n=-=-=-=-==-=-=-=-=')
+        P(self.Q)
+        if mode>0:
+            self.Q.info(cap='[LAYER INFO]',P=P)
+        #P('\nPARAMETERS\n')
+        #Q = self.Q.parameters()
+        #for i,q in enumerate(Q):
+        #    print(i, q.shape)
+        P('Train Count:', self.train_count)
         if (self.tuf>0):
-            p('Update Count:', self.update_count)
-        p('=-=-=-=-==-=-=-=-=!Q-net=-=-=-=-==-=-=-=-=')
+            P('Update Count:', self.update_count)
+        P('=-=-=-=-==-=-=-=-=!Q-net=-=-=-=-==-=-=-=-=')
         return
         
     def save(self, filename):
