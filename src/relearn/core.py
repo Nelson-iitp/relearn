@@ -2,20 +2,13 @@
 # relearn/core.py
 #-----------------------------------------------------------------------------------------------------
 
-
 #-----------------------------------------------------------------------------------------------------
 import torch
-from numpy.random import default_rng
 #-----------------------------------------------------------------------------------------------------
 
-
-#-----------------------------------------------------------------------------------------------------
-# Basic Classes
-#-----------------------------------------------------------------------------------------------------
-
-class OBJ:
+class OBJECT:
     """ 
-    [OBJ] - an empty object, can be used for a variety of purposes 
+    [OBJECT] - an empty object, can be used for a variety of purposes 
     """
     def __init__(self, **kwarg):
         for arg in kwarg:
@@ -45,230 +38,207 @@ class SPACE:
         (1) zero(): creates and returns one zero-tensor     :: space.zero(device='cpu'):  -> torch.Tensor
         (2) zeros(): creates and returns two zero-tensors   :: space.zeros(device='cpu'): -> torch.Tensor, torch.Tensor
     """
+    NEW = lambda T: SPACE(T[0], T[1], T[2], T[3], T[4])
     def __init__(self, shape, dtype, low=0, high=0, discrete=False):
-        self.shape , self.dtype = shape, dtype                   # primary
-        self.low, self.high, self.discrete = low, high, discrete # user
-        self.scalar = (len(self.shape)==0)                       # derived
+        self.shape , self.dtype, self.low, self.high, self.discrete, self.scalar = shape, dtype, low, high, discrete, (len(shape)==0) 
     def zero(self, device='cpu'):
         return torch.zeros(size=self.shape, dtype=self.dtype, device=device)
     def zeros(self, device='cpu'):
         return  torch.zeros(size=self.shape, dtype=self.dtype, device=device),\
                 torch.zeros(size=self.shape, dtype=self.dtype, device=device)
+    def zeron(self, n, device='cpu'):
+        return torch.zeros(size=(n,)+self.shape, dtype=self.dtype, device=device)
     def __str__(self):
         return '[SPACE] : shape:[{}], dtype:[{}], discrete[{}], scalar:[{}]'.format(
                 self.shape, self.dtype, self.discrete, self.scalar)
     def __repr__(self):
         return self.__str__()
-    def NEW(info):
-        """ takes 5-tuple: info = ( shape, dtype, low, high, discrete) and creates new SPACE object """
-        return SPACE(info[0], info[1], info[2], info[3], info[4])
-    def SPACES( hidden_info =   ((), torch.float32, 0, 0, False), 
-                state_info =    ((), torch.float32, 0, 0, False), 
-                action_info =   ((), torch.int32,   0, 2, True),
-                reward_info =   ((), torch.float32, 0, 0, False),
-                done_info =     ((), torch.bool,    0, 0, True),
-                counter_info =  ((), torch.int32,   0, 0, True),
-                tag_info =      ((), torch.bool,    0, 0, True)
-                ):
-        """
-        * returns a standard set of nessesary 'spaces' (returns OBJ)
-        * 'spaces' object has 7 standard spaces: ( H, S, A, R, D, T, G ) used to create BUFFER objects in ENV
-            [H]idden    :   part of state that is hidden from agent     (hidden shape and dtype can be choosen)
-            [S]tate     :   part of state that is visible to agent      (state shape and dtype can be choosen)
-            [A]ction    :   action-vector that the agent can write to   (action shape and dtype can be choosen)
-            [R]eward    :   reward-vector that agent can read from      (reward shape is (), can only choose dtype)
-            [D]one      :   done flag indicating final state            (done shape is (), dtype is torch.bool)
-            Coun[T]er   :   used to count timesteps                     (counter shape is (), can only choose dtype)
-            Ta[G]       :   used store meta-data in memory              (tag shape and dtype can be choosen)
-
-        """
-        x = OBJ() # ( H, S, A, R, D, T, G )
-        x.H, x.S, x.A, x.R, x.D, x.T, x.G  = SPACE.NEW(hidden_info), SPACE.NEW(state_info), SPACE.NEW(action_info), SPACE.NEW(reward_info), SPACE.NEW(done_info), SPACE.NEW(counter_info), SPACE.NEW(tag_info)
-        return x
-
-
-#-----------------------------------------------------------------------------------------------------
-# Core Classes
-#-----------------------------------------------------------------------------------------------------
 
 class BUFFER:
-
-    def __init__(self, spaces, capacity, device, memory_device, auto_create=True):
-        self.device, self.memory_device = device, memory_device
-        self.spaces = spaces
-        self.capacity = capacity
-        self.create_buffer()
-        self.has_memory = False
-        self.create_memory() if auto_create else None
-
-    def create_buffer(self):
-        # create buffer
-        self.Hi, self.H = self.spaces.H.zeros(self.device)
-        self.Si, self.S = self.spaces.S.zeros(self.device)
-        self.Ai, self.A = self.spaces.A.zeros(self.device)
-        self.Ri, self.R = self.spaces.R.zeros(self.device)
-        self.Di, self.D = self.spaces.D.zeros(self.device)
-        self.Ti, self.T = self.spaces.T.zeros(self.device)
-        self.G = self.spaces.G.zero(self.device)
-
-    def create_memory(self):
-        # create memory
-        self.SS = torch.zeros( size=(self.capacity,)+self.spaces.S.shape, dtype=self.spaces.S.dtype, device=self.memory_device )
-        self.AA = torch.zeros( size=(self.capacity,)+self.spaces.A.shape, dtype=self.spaces.A.dtype, device=self.memory_device )
-        self.RR = torch.zeros( size=(self.capacity,)+self.spaces.R.shape, dtype=self.spaces.R.dtype, device=self.memory_device )
-        self.DD = torch.zeros( size=(self.capacity,)+self.spaces.D.shape, dtype=self.spaces.D.dtype, device=self.memory_device )
-        self.TT = torch.zeros( size=(self.capacity,)+self.spaces.T.shape, dtype=self.spaces.T.dtype, device=self.memory_device )
-        self.GG = torch.zeros( size=(self.capacity,)+self.spaces.G.shape, dtype=self.spaces.G.dtype, device=self.memory_device )
-        self.clear_memory()
-        self.has_memory = True
-
-    def clear_memory(self):
-        self.at_max = False
-        self.ptr = 0
-
+    def __init__(self, space, double, snapable, capacity, buffer_device, memory_device):
+        self.space = space
+        self.data = space.zero(buffer_device)
+        self.idata = space.zero(buffer_device) if double else None
+        self.mem = space.zeron(capacity, memory_device) if snapable else None
     def copi(self):
-        self.H.data.copy_(self.Hi)
-        self.S.data.copy_(self.Si)
-        self.A.data.copy_(self.Ai)
-        self.R.data.copy_(self.Ri)
-        self.D.data.copy_(self.Di)
-        self.T.data.copy_(self.Ti)
+        self.data.copy_(self.idata)
+    def snap(self, i):
+        self.mem[i].copy_(self.data)
+
+class SIMULATOR:
+    def __init__(self, buffer_device, memory_device, capacity):
+        self.buffer_device, self.memory_device, self.capacity  = buffer_device, memory_device, capacity
+        self.keys_all, self.keys_double, self.keys_snapable = set(), set(), set()
+        self.clear_memory()
+
+    def clear_memory(self): # actually just resets the pointers
+        self.at_max, self.ptr = False, 0
 
     def count(self):
         return self.capacity if self.at_max else self.ptr
 
-    def snap(self): # begin a new item in list (new episode)
-        self.SS[self.ptr].data.copy_(self.S)
-        self.AA[self.ptr].data.copy_(self.A)
-        self.RR[self.ptr].data.copy_(self.R)
-        self.DD[self.ptr].data.copy_(self.D)
-        self.TT[self.ptr].data.copy_(self.T)
-        self.GG[self.ptr].data.copy_(self.G)
+    def add_buffer(self, key, space, double, snapable):
+        if hasattr(self, key):
+            raise NameError('SIMULATOR already has an attribute [{}], choose a different buffer key.'.format(key))
+        else:
+            setattr(self, key, BUFFER(space, double, snapable, self.capacity, self.buffer_device, self.memory_device))
+            self.keys_all.add(key)
+            self.keys_double.add(key) if double else None
+            self.keys_snapable.add(key) if snapable else None
+
+    def remove_buffer(self, key):
+        if not hasattr(self, key):
+            raise NameError('SIMULATOR does not have an attribute [{}], could not remove.'.format(key))
+        else:
+            self.keys_all.remove(key) if key in self.keys_all else None
+            self.keys_double.remove(key) if key in self.keys_double else None
+            self.keys_snapable.remove(key) if key in self.keys_snapable else None
+            delattr(self, key)
+
+    def copi(self):
+        for key in self.keys_double:
+            getattr(self, key).copi()
+
+    def snap(self):
+        for key in self.keys_snapable:
+            getattr(self, key).snap(self.ptr)
         self.ptr+=1
         if self.ptr == self.capacity:
-            self.at_max=True
-            self.ptr = 0
+            self.at_max, self.ptr = True, 0
 
-    def SAMPLE_BATCH(self, rng, size):
-        count = self.capacity if self.at_max else self.ptr
-        return torch.tensor(rng.integers(self.ptr - count + self.at_max + 1, self.ptr, size=min( count, size )), device=self.memory_device)
-    
-    def SAMPLE_RECENT(self, size):
-        count = self.capacity if self.at_max else self.ptr
-        return torch.arange(self.ptr - min( count, size ) + self.at_max + 1, self.ptr, 1, device=self.memory_device)
-    
-    def PREPARE_BATCH(self, samples): # returns cS, A, R, D, nS
-        actual_samples = []
-        for i in samples:
-            if self.TT[i]>0:
-                actual_samples.append(i)
-        si = torch.tensor(actual_samples, samples.dtype, device=samples.device)
-        return self.SS[si-1], self.AA[si], self.RR[si], self.DD[si], self.SS[si] 
+    def range_recent(self, size): # returns low, high, count
+        return  (self.ptr - min( self.capacity, size ) + 2, self.ptr, self.capacity) if self.at_max else (self.ptr - min( self.ptr,      size ) + 1, self.ptr, self.ptr) 
 
-    def render(self, low, high, step=1, p=print):
+    def range_random(self): # returns low, high, count
+        return  ( self.ptr - self.capacity + 2, self.ptr, self.capacity ) if self.at_max else ( 1, self.ptr, self.ptr ) 
+
+    def read(self, indices):
+        return { key : getattr(self, key).mem[indices] for key in self.keys_snapable }
+
+    def read_(self, indices):
+        return OBJECT( **self.read(indices) )
+
+    def render_buffer(self, p=print):
+        p('=-=-=-=-==-=-=-=-=@BUFFER=-=-=-=-==-=-=-=-=')
+        p("Keys-[{}: {}]\nDouble-[{}: {}]\nSnapable-[{}: {}]".format(
+            len(self.keys_all), self.keys_all, len(self.keys_double), self.keys_double, len(self.keys_double), self.keys_double  ) )
+        p('------------------@KEYS------------------')
+        for key in self.keys_all:
+            p('\t{}\t::\t{}'.format(key, getattr(self, key).val) )
+        p('=-=-=-=-==-=-=-=-=!KEYS=-=-=-=-==-=-=-=-=')
+
+    def render_memory(self, low, high, step=1, p=print):
         p('=-=-=-=-==-=-=-=-=@MEMORY=-=-=-=-==-=-=-=-=')
         p("Count ["+str(self.count())+"]\nCapacity ["+str(self.capacity)+ "]\nPointer ["+str(self.ptr)+ "]")
         p('------------------@SLOTS------------------')
         for i in range (low, high, step):
-            p('Transition: [{}] :: T:[{}], S:[{}], A:[{}], R:[{}], D:[{}], G:[{}]'.format(
-                    i, self.TT[i], self.SS[i], self.AA[i], self.RR[i], self.DD[i], self.GG[i]))
-            
+            p('[SLOT: {}]\n'.format(i))
+            for key in self.keys_snapable:
+                p('\t{}\t::\t{}'.format(key, getattr(self, key).mem[i]))
         p('=-=-=-=-==-=-=-=-=!MEMORY=-=-=-=-==-=-=-=-=')
 
-    def render_all(self, p=print):
-        self.render(0, self.count(), p=p)
+    def render_memory_all(self, p=print):
+        self.render_memory(0, self.count(), p=p)
 
-    def render_last(self, nos, p=print):
-        self.render(-1, -nos-1, step=-1,  p=p)
+    def render_memory_last(self, nos, p=print):
+        self.render_memory(-1, -nos-1, step=-1,  p=p)
 
 class ENV:
-
-    def __init__(self, known, task, spaces, capacity, device, memory_device, seed=None, auto_create=True, auto_start=True, auto_snap=True):
-        self.known, self.task, self.spaces =  known, task, spaces
-        self.device = device 
-        self.rng =  default_rng(seed)
+    # state_key, action_key (s,a)
+    def __init__(self,  known, task, 
+                        buffers, state_key, action_key, flag_key, buffer_device, 
+                        memory_device, capacity, auto_start=True, auto_snap=True ):
+        self.known, self.task =  known, task
         self.initF()
-        self.buffer=BUFFER(spaces, capacity, device, memory_device, auto_create) #<--- buffer variable is initialized after initF because initF does not reuqire it
-        self.started = False
+        
+        self.sim = SIMULATOR(buffer_device, memory_device, capacity)
+        for key, space, double, snapable in buffers:
+            self.sim.add_buffer(key, space, double, snapable)
+
+        self.Skey, self.Akey, self.Fkey = state_key, action_key, flag_key
+        self.S = getattr(self.sim, self.Skey)
+        self.A = getattr(self.sim, self.Akey)
+        self.F = getattr(self.sim, self.Fkey)
+    
+
         self.auto_snap=auto_snap
+        self.started = False
         self.start() if auto_start else None
 
     def start(self):
         self.reset()
-        self.restart()
         self.started = True
 
     def reset(self):
         self.resetF()
+        self.restart()
 
     def restart(self):
-        self.buffer.copi()
-        self.restartF()
-        self.buffer.snap() if self.auto_snap else None
+        self.sim.copi()
+
+        self.flag = self.restartF()
+        self.steps = 0
+
+        self.F.val.fill_(self.flag)
+        self.sim.snap() if self.auto_snap else None
 
     def step(self, action):
-        self.buffer.A.data.copy_( action )
-        self.stepF()
-        self.buffer.T += 1
-        self.buffer.snap() if self.auto_snap else None
+        self.A.val.copy_(action)
+
+        self.flag = self.stepF()
+        self.steps+=1
+
+        self.F.val.fill_(self.flag)
+        self.sim.snap() if self.auto_snap else None
+    
     
     def explore_steps(self, policy, moves, max_steps, frozen):
         for _ in range(moves):
-            if (self.env.buffer.D or self.env.buffer.T >= max_steps):
-                self.reset() if not frozen else None
-                self.restart()
-            self.step(policy.predict(self.env.buffer.S))
+            if (self.flag or self.steps >= max_steps):
+                self.restart() if frozen else self.reset()
+            self.step(policy.predict(self.S.val))
         return
 
     def explore_episodes(self, policy, moves, max_steps, frozen):
-        if (self.env.buffer.D or self.env.buffer.T >= max_steps):
-            self.reset() if not frozen else None
-            self.restart()
+        (self.restart() if frozen else self.reset()) if (self.flag or self.steps >= max_steps) else (None)    
         for _ in range(moves):
-            while not (self.env.buffer.D or self.env.buffer.T >= max_steps):
-                self.step(policy.predict(self.env.buffer.S))
-            self.reset() if not frozen else None
-            self.restart()
+            while not (self.flag or self.steps >= max_steps):
+                self.step(policy.predict(self.S.val))
+            self.restart() if frozen else self.reset()
         return
 
-    def buildF( **kwargs ):
-        spaces, known = SPACE.SPACES(), OBJ(**kwargs)
-        print(' !-- WARNING: NOT IMPLEMENTED --! [buildF] ')
-        return spaces, known
-    def strF( state ):
-        print(' !-- WARNING: NOT IMPLEMENTED --! [strF] ')
-        return ""
+
     def initF(self):
         print(' !-- WARNING: NOT IMPLEMENTED --! [initF] ')
+        return
     def resetF(self):
         print(' !-- WARNING: NOT IMPLEMENTED --! [resetF] ')
+        return
     def restartF(self):
+        flag = None
         print(' !-- WARNING: NOT IMPLEMENTED --! [restartF] ')
+        return flag
     def stepF(self):
+        flag = None
         print(' !-- WARNING: NOT IMPLEMENTED --! [stepF] ')
-    
+        return flag
+
 class PIE:
 
-    def __init__(self, device, spaces, seed=None):
-        self.device, self.spaces = device, spaces
-        self.rng = default_rng(seed)
+    def __init__(self, device, state_space, action_space):
+        self.device, self.state_space, self.action_space = device, state_space, action_space
+        self.action = self.action_space.zero()
 
     def predict(self, state): 
         # state is an buffer tensor usually, env.buffer.S
-        self.action = None
         self.predictF(state)
         return self.action
 
     def predictF(self, state):
-        # by default implements uniform random policy
-        if self.spaces.A.discrete:
-            self.action = torch.tensor(self.rng.integers(self.spaces.A.low, self.spaces.A.high, size=self.spaces.A.shape),
-                                dtype=self.spaces.A.dtype, device=self.device )
-        else:
-            self.action = torch.tensor(self.rng.uniform(self.spaces.A.low, self.spaces.A.high, size=self.spaces.A.shape),
-                                dtype=self.spaces.A.dtype, device=self.device )
+        self.action*=0
+        print(' !-- WARNING: NOT IMPLEMENTED --! [stepF] ')
+        return
             
-
 
 #-----------------------------------------------------------------------------------------------------
 # Author: Nelson Sharma
