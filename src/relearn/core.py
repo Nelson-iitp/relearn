@@ -24,7 +24,7 @@ class OBJECT:
 
 class SPACE:
     """ 
-    [SPACE] - equivalent of a vector space 
+    [SPACE] - represents a vector space 
 
     * SPACE object has following attributes:
         [1] shape:      dimension (tuple)
@@ -37,6 +37,7 @@ class SPACE:
     * SPACE object has following functions:
         (1) zero(): creates and returns one zero-tensor     :: space.zero(device='cpu'):  -> torch.Tensor
         (2) zeros(): creates and returns two zero-tensors   :: space.zeros(device='cpu'): -> torch.Tensor, torch.Tensor
+        (3) zeron(): creates and returns n zero-tensors     :: space.zeron(device='cpu'): -> torch.Tensor
     """
     NEW = lambda T: SPACE(T[0], T[1], T[2], T[3], T[4])
     def __init__(self, shape, dtype, low=0, high=0, discrete=False):
@@ -55,7 +56,29 @@ class SPACE:
         return self.__str__()
 
 class BUFFER:
+    """
+    [BUFFER] - a pair of tensors with attached memory, used by SIMULATOR class
+
+    * BUFFER object has following attributes:
+        [1] space:      underlying SPACE object
+        [2] data:       current tensor
+        [3] idata:      initial tensor
+        [4] mem:        memory tensor
+
+    * SPACE object has following functions:
+        (1) copi():-> None      - copies initial tensor (idata) to current tensor (data)
+        (2) snap(i):-> None     - copies current tensor (data) to memory tensor (mem) at index i
+    """
     def __init__(self, space, double, snapable, capacity, buffer_device, memory_device):
+        """
+        Args
+            space:      [SPACE]     underlying SPACE object
+            double:     [bool]      if True, maintains a initial tensor (idata), uses self.copi to copy data 
+            snapable:   [bool]      if True, snaps this tensor to memory when self.snap is called
+            capacity:   [int]       the size of memory tensor
+
+        * buffer_device, memory_device are torch devices. Note that these can be different, usually buffer should be kept on cpu
+        """
         self.space = space
         self.data = space.zero(buffer_device)
         self.idata = space.zero(buffer_device) if double else None
@@ -66,12 +89,29 @@ class BUFFER:
         self.mem[i].copy_(self.data)
 
 class SIMULATOR:
+    """
+    [SIMULATOR] - collection of BUFFER objects to simulate an environment, each ENV object has its own SIMULATOR object
+
+    * SIMULATOR object has following attributes:
+        [1] buffer_device:      [str]   torch device for buffer tensors
+        [2] memory_device:      [str]   torch device for memory tensors
+        [4] capacity:           [int]   first dimension (count) of memory tensors
+        [4] at_max:             [bool]  a flag indicating in memory is full
+        [4] ptr:                [int]   pointer to end of memory
+        [3] keys_all:           [set]   set of all buffer keys
+        [4] keys_double:        [set]   set of buffers that have idata (copi() on call)
+        [4] keys_snapable:      [set]   set of all buffer keys that have mem (snap() on call)
+
+    * SIMULATOR class should not be created directly, as it requires initialization and then adding of buffers.
+        Simulator is automatically created in the ENV class. Methods provided in ENV class can be used in all inherited instances
+    """
     def __init__(self, buffer_device, memory_device, capacity):
         self.buffer_device, self.memory_device, self.capacity  = buffer_device, memory_device, capacity
         self.keys_all, self.keys_double, self.keys_snapable = set(), set(), set()
         self.clear_memory()
 
-    def clear_memory(self): # actually just resets the pointers
+    def clear_memory(self): 
+        """ clears memory of all buffers - actually just resets the pointers """
         self.at_max, self.ptr = False, 0
 
     def count(self):
@@ -144,7 +184,23 @@ class SIMULATOR:
         self.render_memory(-1, -nos-1, step=-1,  p=p)
 
 class ENV:
-    # state_key, action_key (s,a)
+    """
+    [ENV] - simulates an environment using a SIMULATOR object. Each ENV objects has its own SIMULATOR object
+
+    * ENV object has following attributes:
+        [1] known:          [Any]           an object that contains 'knowledge' common for all ENV instances
+        [2] task:           [Any]           an object that contains 'task' that is ENV instance-specific
+        [3] sim:            [SIMULATOR]     underlying SIMULATOR object
+        [4, 5] SKey, S:     [str, BUFFER]   a buffer representing the observation (visible to agent)
+        [6, 7] AKey, A:     [str, BUFFER]   a buffer representing the action (taken by the agent)
+        [8, 9] FKey, F:     [str, BUFFER]   a buffer representing flag (type of state) 
+        [10] auto_snap:     [bool]          if True, stores buffer snaps into memory (only those which are 'snapable') on every reset() and step()
+        [11] flag:          [int]           represets type of state {-1: 'initial', 0: 'non-terminal', 1:'terminal'}
+        [12] steps:         [int]           timesteps elapsed since last call to restart()
+    
+    * Inherit the ENV class to implement custom environments. 
+    * Inherited class must implement the functions marked as NOT IMPLEMENTED (ending with a capital 'F') 
+    """
     def __init__(self,  known, task, 
                         buffers, state_key, action_key, flag_key, buffer_device, 
                         memory_device, capacity, auto_start=True, auto_snap=True ):
@@ -160,14 +216,10 @@ class ENV:
         self.A = getattr(self.sim, self.Akey)
         self.F = getattr(self.sim, self.Fkey)
     
-
         self.auto_snap=auto_snap
-        self.started = False
-        self.start() if auto_start else None
-
-    def start(self):
-        self.reset()
-        self.started = True
+        self.flag = None
+        self.steps = -1
+        self.reset() if auto_start else None
 
     def reset(self):
         self.resetF()
@@ -190,7 +242,6 @@ class ENV:
 
         self.F.val.fill_(self.flag)
         self.sim.snap() if self.auto_snap else None
-    
     
     def explore_steps(self, policy, moves, max_steps, frozen):
         for _ in range(moves):
@@ -224,7 +275,17 @@ class ENV:
         return flag
 
 class PIE:
+    """
+    [PIE] - represent an abstract policy
 
+    * PIE object has following attributes:
+        [1] device:          [str]           torch.device
+        [2] state_space:     [SPACE]         underlying state space
+        [3] action_space:    [SPACE]         underlying action space
+    
+    * Inherit the PIE class to implement custom policies. 
+    * Inherited class must implement the functions marked as NOT IMPLEMENTED (ending with a capital 'F') 
+    """
     def __init__(self, device, state_space, action_space):
         self.device, self.state_space, self.action_space = device, state_space, action_space
         self.action = self.action_space.zero()

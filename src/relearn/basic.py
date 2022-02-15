@@ -24,7 +24,7 @@ def base2int(arr, base):
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 def int2baseA(num, base):
     """ convert base-10 integer to base-n array of fixed no. of digits 
-    return array (of length = digs)"""
+    return array (of length = base)"""
     #res = np.zeros(digs, dtype=np.int32)
     digs = len(base)
     res = [ 0 for _ in range(digs) ]
@@ -60,6 +60,7 @@ def strN(format="%Y_%m_%d_%H_%M_%S"):
     return datetime.datetime.strftime(datetime.datetime.now(), format)
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 def show(x, P = print):
+    """ prints x.__dict__ uaing strD() """
     P(strD(x.__dict__, caption=str(x.__class__)))
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
