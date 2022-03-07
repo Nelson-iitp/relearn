@@ -24,7 +24,7 @@ class SPACE:
 
         (.) zeros(device):-> Tensor             : returns a zero tensor from this space
         (.) zeron(n, device):-> Tensor          : returns a stack of 'n' zero tensor from this space
-        (.) enum():-> Tensor, Tensor, Tensor    : enumerates space and returns 3-tuple (low, high, elements)
+        (.) enum(flat, device):-> int, Tensor   : enumerates space and returns 2-tuple (count, elements)
         (.) sample(rng, device):-> Tensor       : sample uniformly from given space using numpy-like rng 
 
     """
