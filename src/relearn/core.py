@@ -128,7 +128,7 @@ class ENV:
             self.memory=None
 
     def start(self):
-        """ start a new episode or trajectory - returns a generator object which implements its own 'next' method """
+        """ start a new episode or trajectory """
         done = self.reset()
         self.snap(False)
         return done
