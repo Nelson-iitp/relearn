@@ -127,6 +127,8 @@ class ENV:
         if reset_memory:
             self.memory=None
 
+
+    # for SELF-SIMULATED Environment -------------------------------
     def start(self):
         """ start a new episode or trajectory """
         done = self.reset()
@@ -150,6 +152,7 @@ class ENV:
     def step(self) -> bool:
         print ('step ~ not implemented ~')
         return True
+
 
 class MEMORY:
     """
