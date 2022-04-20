@@ -2,7 +2,6 @@
 
 #import numpy as np
 
-from numpy import indices
 import torch as T
 import torch.nn as nn
 #import torch.optim as optim
