@@ -6,7 +6,6 @@ import gym
 import gym.spaces
 import numpy as np
 import matplotlib.pyplot as plt
-from pyrsistent import inc 
 #from matplotlib.patches import Circle
 #import mpl_toolkits.mplot3d.art3d as art3d
 from .common import int2base
