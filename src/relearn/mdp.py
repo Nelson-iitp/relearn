@@ -2,29 +2,35 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # mdp.py
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import torch as tt
+import torch.distributions as td
 import gym
 import gym.spaces
 import numpy as np
 import matplotlib.pyplot as plt
-#from matplotlib.patches import Circle
-#import mpl_toolkits.mplot3d.art3d as art3d
 from .common import int2base
 
-class treeMDP(gym.Env): # a discrete action mdp
 
-    def __init__(self, n, h, reward_range=(0,1), use_integer_reward=False, seed=None) -> None:
-        # a tree with only root node has height h = 1
-        # in an n-arry tree, of height h, there are h+1 levels (including level 0)
-        #  a geometric progression (a,     ar, ar**2, .... ar**n) with a=1, r=b
-        #    nth term is given by a(n) = ar**(n-1) or recursively a(n) = r*a(n-1)
-        #    summation upto n terms =  a* ( (1-r**n)/(1-r) )
+
+def integer_reward_matrix(size, reward_range, dtype=np.float32):
+    return np.random.randint(
+                reward_range[0], 
+                reward_range[1], 
+                size=size).astype(dtype)
+
+def real_reward_matrix(size, reward_range, dtype=np.float32):
+    return  reward_range[0] + \
+        (np.random.random(size=size).astype(dtype)) * (reward_range[1] - reward_range[0])
+           
+class treeMDP(gym.Env): # a discrete action mdp
+    
+    def __init__(self, n, h, reward_range=(0,1), use_integer_reward=False) -> None:
         self.n = n
         self.h = h # this starts from 0 upto h (so total height levels+1)
         self.nodes_at_level = lambda l: int(self.n**(l))
         self.nodes_upto_level = lambda l: int( (1-(self.n**l))/ (1-self.n))
         self.nodes_total = self.nodes_upto_level(self.h)
         self.nodes_max = self.nodes_at_level(self.h-1)
-        self.rng = np.random.default_rng(seed)
 
         self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32)
         self.S=self.observation_space.sample()*0
@@ -35,15 +41,17 @@ class treeMDP(gym.Env): # a discrete action mdp
         self._max_episode_steps = self.h - 1
         self.reward_range = reward_range
 
-        self.integer_reward_matrix() if use_integer_reward else self.real_reward_matrix()
         self.possible_soultions = self.n**(self.h-1)
         self.reset()
 
-    def integer_reward_matrix(self):
-        self.R = self.rng.integers(self.reward_range[0], self.reward_range[1], size=(self.nodes_total-self.nodes_max, self.n)).astype(np.float32)
-
-    def real_reward_matrix(self):
-        self.R = self.reward_range[0] + (self.rng.random(size=(self.nodes_total-self.nodes_max, self.n)).astype(np.float32))*(self.reward_range[1] - self.reward_range[0])
+        self.size=(self.nodes_total-self.nodes_max, self.n)
+        if not(use_integer_reward is None):
+            self.R = (  integer_reward_matrix(self.size, self.reward_range) \
+                        if use_integer_reward else \
+                        real_reward_matrix(self.size, self.reward_range)
+                    )
+        else:
+            self.R = None
 
     def reset(self):
         self.S*=0
@@ -66,7 +74,7 @@ class treeMDP(gym.Env): # a discrete action mdp
         self.hist_r.append(reward)
         return self.S, reward, (self.Li>=self.h-1), {}
 
-    def render(self, mode=0):
+    def render(self):
         #s = 0
         fig = plt.figure(figsize=(12,12))
         plt.ylim(-1, self.h)
@@ -119,72 +127,96 @@ class treeMDP(gym.Env): # a discrete action mdp
         })
         return test_results
         
+    def clone(self):
+        res = treeMDP(self.n, self.h, self.reward_range, use_integer_reward=None )
+        res.R = np.copy(self.R)
+        return res
 
-import torch as tt
-import torch.distributions as td
+class TransitionGenerator:
+    def deterministic(nos_states, near, increment):
+        res = np.zeros((nos_states,), dtype=np.float32) + near
+        res[np.random.randint(0, nos_states)] += increment
+        return tt.tensor(res)
+
+    def similar(nos_states, whatever1, whatever2):
+        return tt.ones(nos_states)
+
+    def uniform(nos_states, low, high):
+        return tt.tensor(np.random.uniform(low, high, nos_states))
+
+    def normal(nos_states, low, high):
+        return tt.tensor(np.random.uniform(low, high, nos_states))
+
 class randMDP(gym.Env): # a discrete action mdp
     
     def __init__(self, nos_states, nos_actions, initial_states, final_states, max_ts, reward_range=(0,1), 
-    use_integer_reward=False, tr_dist=0, tr_args=(0.0, 1.0), seed=None) -> None:
+    use_integer_reward=False, tr_dist=('deterministic', 0.0, 1.0), use_logits=True, seed=None) -> None:
         # a random mdp
         self.nos_states = nos_states
         self.initial_states = initial_states
         self.final_states = final_states
         self.nos_actions = nos_actions # this starts from 0 upto h (so total height levels+1)
 
-        self.rng = np.random.default_rng(seed)
-
         self.observation_space = gym.spaces.Box(low=0, high=nos_states, shape=(1,), dtype=np.int32)
         self.S=self.observation_space.sample()*0
 
-        self.action_space = gym.spaces.Discrete(nos_actions)
+        self.action_space = gym.spaces.Discrete(self.nos_actions)
         self._max_episode_steps = max_ts
         self.reward_range = reward_range
-        self.use_integer_reward = use_integer_reward
-        
-        
-        size = (self.nos_states,)
 
-        def detTrans(almost=0.0, increment=1.0):
-            res = np.zeros(size, dtype=np.float32)+almost
-            res[self.rng.integers(0, self.nos_states)] += increment
-            return res
-        self.trs = [
-            # 0
-            lambda: td.Categorical(logits = tt.tensor(self.rng.uniform(low = tr_args[0], high=tr_args[1], size=size ))), # 0
-
-            # 1
-            lambda: td.Categorical(logits = tt.tensor(self.rng.normal(loc=tr_args[0], scale=tr_args[1], size=size))),     # 1
-
-            # 2
-            lambda: td.Categorical(logits = tt.tensor(np.ones(size))), # 2
-
-            # 3
-            lambda: td.Categorical(logits = tt.tensor(detTrans(tr_args[0], tr_args[1]))), # 3 by default returns deterministic
-
-            # 4
-            lambda: td.Categorical(probs= tt.tensor(detTrans(tr_args[0], tr_args[1]))), # 2
-        ]
-        transitional = self.trs[int(abs(tr_dist))%len(self.trs)]
-        self.Tr = [([ transitional() for _ in range(self.nos_actions)]) for _ in range(self.nos_states)]
-        self.integer_reward_matrix() if use_integer_reward else self.real_reward_matrix()
+        self.seed=seed
+        self.rng = np.random.default_rng(self.seed)
         self.reset()
+        
+        
+        self.size=(self.nos_states, self.nos_actions, self.nos_states)
+        if not(use_integer_reward is None):
+            self.R = (  integer_reward_matrix(self.size, self.reward_range) \
+                        if use_integer_reward else \
+                        real_reward_matrix(self.size, self.reward_range)
+                    )
+        else:
+            self.R = None
+    
+        self.tr_dist=tr_dist
+        self.use_logits = use_logits
+        if not (tr_dist is None):
+            tr_name, tr_arg1, tr_arg2 = tr_dist
+            transitional_generator = getattr(TransitionGenerator, tr_name)
+            self.transitional = \
+                [([ 
+                    transitional_generator(self.nos_states, tr_arg1, tr_arg2) \
+                        for _ in range(self.nos_actions)]) \
+                            for _ in range(self.nos_states)]
+            self.Tr = self.generateTR()
+        else:
+            self.transitional = None
+            self.Tr = None
+
+    def generateTR(self):
+        return [([ 
+                (td.Categorical(logits = self.transitional[s][a]) \
+                    if self.use_logits else \
+                        td.Categorical(probs = self.transitional[s][a])) \
+                    for a in range(self.nos_actions)]) for s in range(self.nos_states)]
+
+
+    def clone(self):
+        res = randMDP(self.nos_states, self.nos_actions, self.initial_states, self.final_states,
+        max_ts=self._max_episode_steps, reward_range= self.reward_range, use_integer_reward=None, 
+        tr_dist=None, use_logits=self.use_logits, seed=self.seed)
+        res.R = np.copy(self.R)
+        res.transitional = [([ 
+                    self.transitional[s][a].clone() \
+                        for a in range(self.nos_actions)]) \
+                            for s in range(self.nos_states)]
+        res.Tr = res.generateTR()
+        return res
 
     def show_tr(self, p=print):
         for s in range(self.nos_states):
             for a in range(self.nos_actions):
                 p(f'{s=}, {a=}, probs={self.Tr[s][a].probs}')
-
-    def integer_reward_matrix(self):
-        self.R =  self.rng.integers(
-                    self.reward_range[0], 
-                    self.reward_range[1], 
-                    size=(self.nos_states, self.nos_actions, self.nos_states)).astype(np.float32)
-
-    def real_reward_matrix(self):
-        self.R = self.reward_range[0] + \
-            (self.rng.random(size=(self.nos_states, self.nos_actions, self.nos_states)).astype(np.float32)) * \
-                (self.reward_range[1] - self.reward_range[0])
 
     def reset(self):
         self.S*=0
@@ -208,7 +240,7 @@ class randMDP(gym.Env): # a discrete action mdp
         self.ahist.append(action)
         return self.S, reward, done, {}
 
-    def render(self, mode=0):
+    def render(self):
         #s = 0
         fig = plt.figure(figsize=(6,6))
         plt.ylim(-1, self.nos_states)
@@ -226,7 +258,30 @@ class randMDP(gym.Env): # a discrete action mdp
 
         plt.show()
 
-        
+
+    def fully_deterministic(nos_states, nos_actions, initial_states, final_states, max_ts,
+                            reward_range, use_integer_reward, seed=None):
+        return randMDP( nos_states, 
+                        nos_actions, 
+                        initial_states,
+                        final_states,
+                        max_ts,
+                        reward_range,
+                        use_integer_reward,
+                        tr_dist=('deterministic', 0.0, 1.0),
+                        use_logits=False, seed=seed )
+
+    def equal_probability(nos_states, nos_actions, initial_states, final_states, max_ts,
+                            reward_range, use_integer_reward, seed=None):
+        return randMDP( nos_states, 
+                        nos_actions, 
+                        initial_states,
+                        final_states,
+                        max_ts,
+                        reward_range,
+                        use_integer_reward,
+                        tr_dist=('similar', 0.0, 1.0),
+                        use_logits=True, seed=seed )
 #-----------------------------------------------------------------------------------------------------
 # Foot-Note:
 """ NOTE:

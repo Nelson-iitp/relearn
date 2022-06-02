@@ -7,15 +7,13 @@ import torch as tt
 import numpy as np
 from .common import observation_key, action_key, reward_key, done_key, step_key
 from .common import default_spaces, space_range, REX
-
-
-
+from enum import IntEnum
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """ [A] Static Replay Memory """
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-class Ω:
-    """ [Ω] - A key based static replay memory """
+class MEM:
+    """ [MEM] - A key based static replay memory """
 
     def __init__(self, capacity, named_spaces, seed) -> None:
         """ named_spaces is a dict like string_name vs gym.space """
@@ -107,7 +105,21 @@ class Ω:
     def readkeist(self, *args): # same as 'readkeis' but the args are tuples like: (index, key, tey)
         return { t:self.data[k][i] for i,k,t in args }
                 
-
+    def prepare_batch(self, batch_size, dtype, device, discrete_action, replace=False):
+        pick, samples = self.sample_random_(size=batch_size, replace=replace)
+        batch = self.readkeis(
+        (samples-1,        samples,          samples,     samples,     samples,     samples      ), 
+        (observation_key,  observation_key,  action_key,  reward_key,  done_key,    step_key     ), 
+        ('cS',             'nS',             'A',         'R',         'D',          'T'          ))
+        # return pick, cS, nS, A, R, D, T
+        return pick, \
+            tt.tensor(batch['cS'], dtype=dtype, device=device), \
+            tt.tensor(batch['nS'], dtype=dtype, device=device), \
+            tt.tensor(batch['A'], dtype=(tt.long if discrete_action else dtype), device=device), \
+            tt.tensor(batch['R'], dtype=dtype, device=device), \
+            tt.tensor(batch['D'], dtype=dtype, device=device), \
+            tt.tensor(batch['T'], dtype=dtype, device=device)
+        
         
     """ NOTE: Rendering """
     def render(self, low, high, step=1, p=print):
@@ -134,13 +146,19 @@ class Ω:
 """ [B] Base Explorer Class """
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-class ξ: 
-    """ [ξ] - An explorer with memory that can explore an environment using policies 
+class ExploreMode(IntEnum):
+    random = 0 #<--- only mode where we dont need a policy, bool() must be false
+    policy = 1
+    greedy = 2
+    noisy = 3
+    
+class EXP: 
+    """ [EXP] - An explorer with memory that can explore an environment using policies 
               - remember to set self.pie before exploring
               - setting any policy to None will cause it default to self.random()
     """
 
-    def __init__(self, env, episodic, memory_capacity, memory_seed, snap_enabled, **extra_spaces) -> None:
+    def __init__(self, env, **extra_spaces) -> None:
         
         self.spaces={}
         self.spaces.update(default_spaces(env.observation_space, env.action_space))
@@ -152,18 +170,27 @@ class ξ:
         self.false_extra_snap = {k: np.zeros(shape=space.shape,dtype=space.dtype) for k,space in extra_spaces.items()} 
         self.false_act_snap = np.zeros(shape=self.spaces[action_key].shape, dtype=self.spaces[action_key].dtype)
         self.false_reward_snap = np.zeros(shape=self.spaces[reward_key].shape, dtype=self.spaces[reward_key].dtype)
-
+        self.nos_extra_spaces = len(self.false_extra_snap)
         self.env = env
-        self.episodic = episodic
-        self.explore = self.explore_episodes if episodic else self.explore_steps
-
-        self.memory = (Ω(memory_capacity, self.spaces, memory_seed ) if memory_capacity>0 else None)
-        self.enable_snap() if snap_enabled else self.disable_snap()
-        self.reset()
+        self.memory = None
+        self.disable_snap()
+        #self.reset(clear_memory=False, episodic=episodic)
         
+    def reset(self, clear_memory=False, episodic=None):
+        # Note: this does not reset env, just resets its buffer and flag
+        self.cs, self.done, self.ts = None, True, 0
+        self.act, self.reward = self.false_act_snap, self.false_reward_snap
+        self.clear_snap() if clear_memory else None
+        self.N = 0 #<--- is update after completion of episode or step based on (self.episodic)
+        if not (episodic is None):
+            self.episodic = episodic
+            self.explore = self.explore_episodes if episodic else self.explore_steps
+
+
+
     def enable_snap(self):
         if not (self.memory is None):
-            self.snap = self.do_snap
+            self.snap = (self.do_snap_info if self.nos_extra_spaces else self.do_snap)
         else:
             self.disable_snap()
 
@@ -174,15 +201,19 @@ class ξ:
         if not (self.memory is None):
             self.memory.clear()
 
-    def reset(self, clear_memory=False):
-        # Note: this does not reset env, just resets its buffer and flag
-        self.cs, self.done, self.ts = None, True, 0
-        self.act, self.reward = self.false_act_snap, self.false_reward_snap
-        self.clear_snap() if clear_memory else None
-        self.N = 0 #<--- is update after completion of episode or step based on (self.episodic)
 
     def no_snap(self, mask):
         return
+
+    def do_snap_info(self, mask):
+        self.memory.snap(mask, **{   
+                observation_key : self.cs,
+                action_key :      self.act ,
+                reward_key :      self.reward ,
+                done_key :        self.done,
+                step_key:         self.ts,
+                **self.info
+                })
 
     def do_snap(self, mask):
         self.memory.snap(mask, **{   
@@ -191,7 +222,6 @@ class ξ:
                 reward_key :      self.reward ,
                 done_key :        self.done,
                 step_key:         self.ts,
-                **self.info
                 })
 
     @tt.no_grad()
@@ -210,7 +240,7 @@ class ξ:
 
     @tt.no_grad()
     def explore_episodes(self, N):
-        n = self.ts
+        n = 0
         for _ in range(N):
             self.cs, self.act, self.reward, self.done, self.ts, self.info = self.env.reset(), 0, 0, False, 0, self.false_extra_snap
             self.snap(False)
@@ -219,91 +249,61 @@ class ξ:
                 self.act = self.get_action()
                 self.cs, self.reward, self.done, self.info = self.env.step(self.act)
                 self.ts+=1
+                n+=1
                 self.snap(True)
             self.N+=1
-        return self.ts - n
+        return n
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-""" [C] Derived Explorer Classes """
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    def mode(self, explore_mode=ExploreMode.random, pie=None, args=None):
+        """ args:
+            explore_mode      pie          argF
+            0 random          None         None
+            1 policy          obj          None
+            2 greedy          tuple        (start_epsilon, seed)
+            3 noisy           callable     noiseF()
+            """
+        if explore_mode: # mode not random, requires policy.predict
+            if not hasattr(pie, 'predict'):
+                raise REX(f'policy object [{pie}] does not implement predict.')
 
-class randomX(ξ):
-    # Random explorer - explorers based on inbuild env.action_space.sample
+            self.pie = pie
+            if explore_mode == ExploreMode.policy:
+                self.get_action = self.get_action_policy
+            elif explore_mode == ExploreMode.greedy:
+                self.get_action = self.get_action_greedy
+                self.epsilon, seed = args
+                self.epsilon_rng = np.random.default_rng(seed)
+            elif explore_mode == ExploreMode.noisy:
+                self.get_action = self.get_action_noisy
+                self.noiseF = args
+        else: # mode random, do not require policy
+            if not(pie is None):
+                print(f'Warning: setting policy [{pie}] on a random explorer, this has no effect.')
+            self.get_action = self.get_action_random
 
-    def set_policy(self, pie):
-        print(f'Warning: setting policy [{pie}] on a random explorer, this has no effect.')
-        pass
-
-    def get_action(self): 
+    def get_action_random(self): 
         return self.env.action_space.sample()
-
-class policyX(ξ): 
-    # Policy explorer - explorers based on a given policy
-
-    def set_policy(self, pie):
-        if not hasattr(pie, 'predict'):
-            raise REX(f'policy object [{pie}] does not implement predict.')
-        self.pie = pie
-
-    def get_action(self):
+    def get_action_policy(self):
         return self.pie.predict(self.cs)
+    def get_action_greedy(self):
+        return ( self.env.action_space.sample() if (self.epsilon_rng.random()<self.epsilon) else self.pie.predict(self.cs) )
+    def get_action_noisy(self):
+        return ( self.pie.predict(self.cs) + self.noiseF() )
 
-class greedyX(ξ): 
-    # Greedy-Epsilon explorer - explorers based on 2 policies and explorarion probability (epsilon)
-    # epsilonF(self.N) -> bool :: asks if to explore or not
-    def set_policy(self, pie, epsilonF):
-        if not hasattr(pie, 'predict'):
-            raise REX(f'policy object [{pie}] does not implement predict.')
-        self.pie = pie
-        self.do_explore = lambda : epsilonF(self.N)
 
-    def get_action(self):
-        return ( self.env.action_space.sample() if self.do_explore() else self.pie.predict(self.cs) )
+def make_mem( spaces, capacity, seed ):
+    return (MEM(capacity, spaces, seed ) if capacity>0 else None)
 
-class noisyX(ξ): 
-    # Noisy explorer - explorers based on a single policy with added noise
-    # noiseF(self.N) -> vector :: return a noise that is directly added to action
-    def set_policy(self, pie, noiseF):
-        if not hasattr(pie, 'predict'):
-            raise REX(f'policy object [{pie}] does not implement predict.')
-        self.pie = pie
-        self.action_noise = lambda : noiseF(self.N)
-
-    def get_action(self):
-        return ( self.pie.predict(self.cs) + self.action_noise() )
+def make_exp(env, memory_capacity, memory_seed, **extra_spaces):
+    exp = EXP(env, **extra_spaces)
+    mem = make_mem(exp.spaces, memory_capacity, memory_seed)
+    exp.memory = mem
+    exp.enable_snap()
+    return exp, mem
 
 
 #-----------------------------------------------------------------------------------------------------
 """ FOOT NOTE:
-
-[ARCHIVE]
-    def prepare_batch(self, batch_size, dtype, device, recent=False, 
-                input_shape_observation=None, input_shape_action=None):
-
-        pick, samples = (self.sample_recent_(size = batch_size)) \
-                            if recent else \
-                        (self.sample_random_(size=batch_size, replace=False))
-        #if pick != batch_size:
-        #    print('[!~WARNING] batch_size=[{}], pick_size=[{}]'.format(batch_size, pick))
-        batch = self.readkeis(
-            (samples-1,                  samples,                  samples,                 samples,            samples      ), 
-            (observation_key,            observation_key,          action_key,              reward_key,         done_key     ), 
-            ('cS',                       'nS',                     'A',                     'R',                'D'          ))
-
-        cS = tt.tensor(batch['cS'], dtype=dtype, device=device)
-        nS = tt.tensor(batch['nS'], dtype=dtype, device=device)
-        if not (input_shape_observation is None):
-            cS = tt.reshape(cS, (batch_size,) + input_shape_observation)
-            nS = tt.reshape(nS, (batch_size,) + input_shape_observation)
-
-        A = tt.tensor(batch['A'], dtype=tt.long, device=device)
-        if not (input_shape_action is None):
-            A = tt.reshape(A, (batch_size,) + input_shape_action)
-
-        R = tt.tensor(batch['R'], dtype=dtype, device=device)
-        D = tt.tensor(batch['D'], dtype=dtype, device=device)
-        
-        return pick, cS, nS, A, R, D
 
 """
 #-----------------------------------------------------------------------------------------------------

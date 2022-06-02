@@ -7,12 +7,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import gym.spaces
-import os
+import os, datetime
 import torch as tt
 import torch.nn as nn
+from pandas import DataFrame
 from io import BytesIO
-import datetime
-from math import floor
+from math import floor, inf
+
+
+now = datetime.datetime.now
 fake = lambda members: type('object', (object,), members)()
 
 
@@ -150,13 +153,42 @@ def build_sequential(in_dim, layer_dims, out_dim, actF, actL ):
 class MLP(nn.Module):
     """ Multi layer Perceptron based parameterized networks for policy and value networks """
     def __init__(self, in_dim, layer_dims, out_dim, actF, actL):
-        if len(layer_dims)<1:
-            raise ValueError('need at least 1 layers')
         super(MLP, self).__init__()
         self.net = build_sequential(in_dim, layer_dims, out_dim, actF, actL )
     def forward(self, x):
         return self.net(x)
 
+class DLP(nn.Module):
+    """ Decoupled Multi layer Perceptron for dueling-DQN architecture """
+    def __init__(self, 
+    in_dim, 
+    layer_dims_net, 
+    out_dim_net,
+    actF_net, 
+    actL_net,
+    layer_dims_vnet, 
+    actF_vnet, actL_vnet, 
+    layer_dims_anet, 
+    actF_anet, 
+    actL_anet, 
+    out_dim):
+        super(DLP, self).__init__()
+        self.net = build_sequential(in_dim, layer_dims_net, out_dim_net, actF_net, actL_net )
+        self.vnet = build_sequential(out_dim_net, layer_dims_vnet, 1, actF_vnet, actL_vnet)
+        self.anet = build_sequential(out_dim_net, layer_dims_anet, out_dim, actF_anet, actL_anet)
+    def forward(self, x):
+        net_out = self.net(x)
+        v_out = self.vnet(net_out)
+        a_out = self.anet(net_out)
+        return v_out + (a_out -  tt.mean(a_out, dim = -1, keepdim=True))
+
+class MLP2(nn.Module):
+    """ Multi layer Perceptron based parameterized networks for policy and value networks """
+    def __init__(self, in_dim_s, in_dim_a, layer_dims, out_dim, actF, actL):
+        super(MLP2, self).__init__()
+        self.net = build_sequential(in_dim_s+in_dim_a, layer_dims, out_dim, actF, actL )
+    def forward(self, xs, xa):
+        return self.net(tt.concat((xs,xa), dim=-1))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """ [E] Policy Evaluation/Testing ~ does not use explorers """
@@ -187,7 +219,7 @@ def test_policy(env, pie, max_steps, verbose=0, render=0):
         print('[TERM]: TS:[{}], TR:[{}]'.format(steps, total_reward))
     if render==1 or render==2:
         env.render()
-    return steps, total_reward
+    return total_reward, steps
 
 def test_random(env, max_steps, verbose=0, render=0):
     """ test random policy (action_space.sample()) for one episode or end of mas_steps; returns (steps, return) """
@@ -200,7 +232,6 @@ def eval_policy(env, pie, max_steps, episodes, verbose=0, render=0,
         figsize=(16,8), caption="", return_fig=False):
     """ calls test_policy for multiple episodes; 
         returns results as pandas dataframe with cols: (#, steps, return) """
-    from pandas import DataFrame
     test_hist = []
     for n in range(episodes):
         #print(f'\n-------------------------------------------------\n[Test]: {n}\n')
@@ -211,24 +242,25 @@ def eval_policy(env, pie, max_steps, episodes, verbose=0, render=0,
     test_hist=tt.as_tensor(test_hist)
     test_results = DataFrame(data = {
         '#' :       range(len(test_hist)),
-        'steps'  :  test_hist[:, 0], 
-        'return' :  test_hist[:, 1], 
+        'steps'  :  test_hist[:, 1], 
+        'return' :  test_hist[:, 0], 
         })
+    mean_return =  tt.mean(test_hist[:, 0])
+    mean_steps =  tt.mean(test_hist[:, 1])
     if verbose_result:
         test_rewards = test_results['return']
         print(f'[Test Result]:\n\
         \tTotal-Episodes\t[{episodes}]\n\
-        \tMean-Reward\t[{np.mean(test_rewards)}]\n\
+        \tMean-Reward\t[{mean_return}]\n\
         \tMedian-Reward\t[{np.median(test_rewards)}]\n\
         \tMax-Reward\t[{np.max(test_rewards)}]\n\
         \tMin-Reward\t[{np.min(test_rewards)}]\n\
         ')
-        print(f'\n{test_results.describe()}\n')
+        #print(f'\n{test_results.describe()}\n')
     fig_return = plot_test_result(test_results, figsize=figsize, caption=caption, return_fig=return_fig) \
         if render_result else None
         
-    return test_results, fig_return
-
+    return test_results, mean_return, mean_steps, fig_return
 
 def eval_random(env, max_steps, episodes, verbose=0, render=0, 
         verbose_result=True, render_result=True, 
@@ -241,26 +273,61 @@ def eval_random(env, max_steps, episodes, verbose=0, render=0,
         figsize=figsize, caption=caption, return_fig=return_fig
     )
         
-
 def plot_test_result(val_res, figsize, caption, return_fig=False):
     xrange, val_hist_reward, val_hist_steps = val_res['#'], val_res['return'], val_res['steps']
 
-    fig, ax = plt.subplots(2, 1, figsize=figsize)
+    fig, ax = plt.subplots(2, 2, figsize=figsize)
     fig.suptitle(f'[{caption}]')
 
-    vrax = ax[0]
-    vrax.plot(val_hist_reward, label='return', color='tab:green', linewidth=0.7)
-    vrax.scatter(xrange, val_hist_reward, color='tab:green', marker='.')
+    vrax = ax[0,0]
+    #vrax.plot(val_hist_reward, label='return', color='tab:green', linewidth=0.7)
+    #vrax.scatter(xrange, val_hist_reward, color='tab:green', marker='.')
+    vrax.bar( xrange, val_hist_reward, color='tab:green', label='return' )
     vrax.legend()
 
-    vsax = ax[1]
-    vsax.plot(val_hist_steps, label='steps', color='tab:purple', linewidth=0.7)
-    vsax.scatter(xrange,  val_hist_steps, color='tab:purple', marker='.')
+    hrax = ax[0,1]
+    hrax.hist(val_hist_reward, bins=50, color='tab:green', label='return-dist')
+    hrax.legend()
+
+    vsax = ax[1,0]
+    #vsax.plot(val_hist_steps, label='steps', color='tab:purple', linewidth=0.7)
+    #vsax.scatter(xrange,  val_hist_steps, color='tab:purple', marker='.')
+    vsax.bar(xrange,  val_hist_steps, color='tab:blue', label='steps')
     vsax.legend()
+
+    hsax = ax[1,1]
+    hsax.hist(val_hist_steps, bins=50, color='tab:blue', label='steps-dist')
+    hsax.legend()
 
     plt.show()
 
     return (fig if return_fig else None) #plot_validation_result(test_res, figsize, caption, return_fig=return_fig)
+
+def validate_episodes(venvs, pie, episodes, max_steps , episodic_verbose=0, episodic_render=0,
+                    validate_verbose=1,  validate_render=0, 
+                    validate_figsize=(12,12), validate_caption='validation'):
+    validate_result = []
+    for venv in venvs:
+        _ , mean_return, mean_steps, _ = eval_policy(
+            env=venv, pie=pie, max_steps=max_steps, 
+            episodes=episodes, verbose=episodic_verbose, render=episodic_render, 
+            verbose_result=validate_verbose, render_result=validate_render, 
+            figsize=validate_figsize, caption=validate_caption, return_fig=False)
+        #print(test_results.describe())
+        validate_result.append(( mean_return, mean_steps))
+    validate_result = np.array(validate_result)
+    return np.mean(validate_result[:,0]), np.mean(validate_result[:,1])
+
+def validate_episode(venvs, pie, max_steps , episodic_verbose=0, episodic_render=0):
+    validate_result = []
+    for venv in venvs:
+        reward, steps = test_policy(env=venv, pie=pie, 
+                max_steps=max_steps, verbose= episodic_verbose, render=episodic_render)
+        validate_result.append(( reward, steps ))
+    validate_result = np.array(validate_result)
+    return np.mean(validate_result[:,0]), np.mean(validate_result[:,1])
+
+
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -358,25 +425,6 @@ def reversed_cumulative_sum(arr): # ~ used to calculate 'rewards to go'
 
 
 """ FOOT NOTE:
-
-[ARCHIVE]
-
-
-def plot_training_result(train_res, figsize, caption, return_fig=False):
-    hist_loss, hist_return = train_res['loss'], train_res['return']
-
-    fig, ax = plt.subplots(2, 1, figsize=figsize)
-    fig.suptitle(f'Training :[{caption}]')
-
-    hlax = ax[0]
-    hlax.plot(hist_loss, label='loss', color='tab:red', linewidth=0.7)
-    hlax.legend()
-
-    hrax = ax[1]
-    hrax.plot(hist_return, label='return', color='tab:blue', linewidth=0.7)
-    hrax.legend()
-    plt.show()
-    return (fig if return_fig else None)
 
 """
 #-----------------------------------------------------------------------------------------------------
