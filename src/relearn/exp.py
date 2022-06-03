@@ -260,7 +260,7 @@ class EXP:
             0 random          None         None
             1 policy          obj          None
             2 greedy          tuple        (start_epsilon, seed)
-            3 noisy           callable     noiseF()
+            3 noisy           tuple        (noiseF(), clip)
             """
         if explore_mode: # mode not random, requires policy.predict
             if not hasattr(pie, 'predict'):
@@ -274,8 +274,13 @@ class EXP:
                 self.epsilon, seed = args
                 self.epsilon_rng = np.random.default_rng(seed)
             elif explore_mode == ExploreMode.noisy:
-                self.get_action = self.get_action_noisy
-                self.noiseF = args
+                self.noiseF, do_clip = args
+                if do_clip:
+                    self.get_action = self.get_action_noisy_clipped
+                    self.action_low, self.action_high = self.env.action_space.low, self.env.action_space.high
+                else:
+                    self.get_action = self.get_action_noisy
+                
         else: # mode random, do not require policy
             if not(pie is None):
                 print(f'Warning: setting policy [{pie}] on a random explorer, this has no effect.')
@@ -289,7 +294,8 @@ class EXP:
         return ( self.env.action_space.sample() if (self.epsilon_rng.random()<self.epsilon) else self.pie.predict(self.cs) )
     def get_action_noisy(self):
         return ( self.pie.predict(self.cs) + self.noiseF() )
-
+    def get_action_noisy_clipped(self):
+        return np.clip ( self.pie.predict(self.cs) + self.noiseF(), self.action_low, self.action_high )
 
 def make_mem( spaces, capacity, seed ):
     return (MEM(capacity, spaces, seed ) if capacity>0 else None)

@@ -35,7 +35,7 @@ from relearn.common import strA, strD, strU, show, showX
 # [relearn.pie]
 import relearn.pie as pie
 #-----------------------------------------------------------------------------------------------------
-from relearn.pie import dPIE, cPIE, c2PIE
+from relearn.pie import dPIE, cPIE, c2PIE, cdPIE
 from relearn.pie import sVAL, qVAL, mVAL
 #-----------------------------------------------------------------------------------------------------
 
@@ -60,7 +60,8 @@ import relearn.core as core
 import relearn.core.dqn as dqn
 import relearn.core.spg as spg
 import relearn.core.vpg as vpg
-
+import relearn.core.ddpg as ddpg
+import relearn.core.td3 as td3
 
 """ FOOT NOTE:
 

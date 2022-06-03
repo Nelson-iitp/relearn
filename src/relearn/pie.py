@@ -70,8 +70,11 @@ class dPIE(PIE):
         
 
     """ Policy output: distributional ~ called in batch mode"""
-    def __call__(self, state): # returns categorical distribution over policy output 
-        return td.Categorical( logits = self.theta(state) ) 
+    def __call__(self, state, target=False): # returns categorical distribution over policy output 
+        return \
+            (td.Categorical( logits = self.theta_(state))) \
+                if target else \
+            (td.Categorical( logits = self.theta(state))) 
     
     def log_loss(self, state, action, weight):  # loss is -ve because need to perform gradient 'assent' on policy
         return -(  (self(state).log_prob(action) * weight).mean()  )
@@ -92,7 +95,17 @@ class dPIE(PIE):
         self.theta_.load_state_dict(self.theta.state_dict())
         self.theta_.eval()
         return True
-
+        
+    def update_target(self, polyak):
+        if not self.has_target:
+            return False
+        with tt.no_grad():
+            for target_params, model_params in zip(self.theta_.parameters(), self.theta.parameters()):
+                target_params*=(polyak)
+                target_params+=((1-polyak)*model_params)
+        self.theta_.eval()
+        return True
+        
     def _save(self):
         #self.theta.is_discrete = self.is_discrete
         self.theta.has_target = self.has_target
@@ -146,8 +159,11 @@ class cPIE(PIE):
 
 
     """ Policy output: distributional ~ called in batch mode"""
-    def __call__(self, state): # returns categorical distribution over policy output 
-        return td.Normal( loc=self.theta_mean(state), scale=(self.theta_sdev.exp()) )
+    def __call__(self, state, target=False): # returns categorical distribution over policy output 
+        return \
+            (td.Normal( loc=self.theta_mean_(state), scale=(self.theta_sdev_.exp()))) \
+                if target else \
+            (td.Normal( loc=self.theta_mean(state), scale=(self.theta_sdev.exp())))
     
     def log_loss(self, state, action, weight):  # loss is -ve because need to perform gradient 'assent' on policy
         return -(  (self(state).log_prob(action).sum(axis=-1) * weight).mean()  )
@@ -170,6 +186,21 @@ class cPIE(PIE):
         self.theta_mean_.load_state_dict(self.theta_mean.state_dict())
         self.theta_mean_.eval()
         self.theta_sdev_ = self.theta_sdev.detach().clone()
+        return True
+
+    def update_target(self, polyak):
+        if not self.has_target:
+            return False
+        with tt.no_grad():
+            for target_params, model_params in zip(self.theta_mean_.parameters(), self.theta_mean.parameters()):
+                target_params*=(polyak)
+                target_params+=((1-polyak)*model_params)
+
+            #self.theta_sdev_ = self.theta_sdev.detach().clone()
+            self.theta_sdev_*= (polyak)
+            self.theta_sdev_+=((1-polyak)*self.theta_sdev)
+
+        self.theta_mean_.eval()
         return True
 
     def _save(self):
@@ -225,9 +256,12 @@ class c2PIE(PIE):
 
 
     """ Policy output: distributional ~ called in batch mode"""
-    def __call__(self, state): # returns categorical distribution over policy output 
-        return td.Normal( loc=self.theta_mean(state), scale=(self.theta_sdev(state).exp()) )
-    
+    def __call__(self, state, target=False): # returns categorical distribution over policy output 
+        return \
+        (td.Normal( loc=self.theta_mean_(state), scale=(self.theta_sdev_.exp()))) \
+            if target else \
+        (td.Normal( loc=self.theta_mean(state), scale=(self.theta_sdev.exp())))
+
     def log_loss(self, state, action, weight):  # loss is -ve because need to perform gradient 'assent' on policy
         return -(  (self(state).log_prob(action).sum(axis=-1) * weight).mean()  )
 
@@ -252,7 +286,20 @@ class c2PIE(PIE):
         self.theta_sdev_.eval()
         return True
         
+    def update_target(self, polyak):
+        if not self.has_target:
+            return False
+        with tt.no_grad():
+            for target_params, model_params in zip(self.theta_mean_.parameters(), self.theta_mean.parameters()):
+                target_params*=(polyak)
+                target_params+=((1-polyak)*model_params)
+            for target_params, model_params in zip(self.theta_sdev_.parameters(), self.theta_sdev.parameters()):
+                target_params*=(polyak)
+                target_params+=((1-polyak)*model_params)
 
+        self.theta_mean_.eval()
+        self.theta_sdev_.eval()
+        return True
     def _save(self):
         #self.theta.is_discrete = self.is_discrete
         self.theta_mean.has_target = self.has_target
@@ -282,6 +329,82 @@ class c2PIE(PIE):
         self.theta_mean.train(mode)
         self.theta_sdev.train(mode)
 
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+""" [A.3]  Continuous Action Deterministic Policy """
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+class cdPIE(PIE):
+    """ Continuous Action Deterministic Policy : outputs actions directly (no distribution) """
+
+    def __init__(self, policy_theta, has_target, dtype, device):
+        discrete_action, prediction_mode = False, True
+        super().__init__(discrete_action, prediction_mode, has_target,  dtype, device)
+
+        # parameter setup
+        self.theta = policy_theta.to(dtype=dtype, device=device) 
+        self.parameters = self.theta.parameters
+        # target parameter
+        self.theta_ =( clone_model(self.theta, detach=True) if self.has_target else self.theta )
+        # set to train=False
+        self.theta.eval()
+        self.theta_.eval()
+        
+
+    """ Policy output: distributional ~ called in batch mode"""
+    def __call__(self, state, target=False): # returns action
+        return (self.theta_(state) if target else self.theta(state))
+    
+
+    """ Prediction: predict(state) used by explorer ~ called in explore mode"""
+    def predict_stohcastic(self, state):
+        return self.predict_deterministic(state) #<--- switching prediction_mode has no effect
+
+    def predict_deterministic(self, state): 
+        state = tt.as_tensor(state, dtype=self.dtype, device=self.device)
+        return self(state).cpu().numpy()
+
+    def copy_target(self):
+        if not self.has_target:
+            return False
+        self.theta_.load_state_dict(self.theta.state_dict())
+        self.theta_.eval()
+        return True
+
+    def update_target(self, polyak):
+        if not self.has_target:
+            return False
+        with tt.no_grad():
+            for target_params, model_params in zip(self.theta_.parameters(), self.theta.parameters()):
+                target_params*=(polyak)
+                target_params+=((1-polyak)*model_params)
+        self.theta_.eval()
+        return True
+
+    def _save(self):
+        #self.theta.is_discrete = self.is_discrete
+        self.theta.has_target = self.has_target
+        self.theta.dtype = self.dtype
+        self.theta.device = self.device
+        self.theta.prediction_mode = self.prediction_mode
+        
+    def save_(self):
+        #self.theta.is_discrete = self.is_discrete
+        del self.theta.has_target, self.theta.dtype, self.theta.device, self.theta.prediction_mode
+        
+    def save(pie, path):
+        pie._save()
+        tt.save(pie.theta, path)
+        pie.save_()
+        
+    def load(path):
+        theta = tt.load(path)
+        pie = __class__(theta,  theta.prediction_mode, theta.has_target, theta.dtype, theta.device)
+        pie.save_()
+        return pie
+
+    def train(self, mode):
+        self.theta.train(mode)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """ [B] Base Value Netowrk Class """
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -317,6 +440,16 @@ class VAL:
         if not self.has_target:
             return False
         self.theta_.load_state_dict(self.theta.state_dict())
+        self.theta_.eval()
+        return True
+
+    def update_target(self, polyak):
+        if not self.has_target:
+            return False
+        with tt.no_grad():
+            for target_params, model_params in zip(self.theta_.parameters(), self.theta.parameters()):
+                target_params*=(polyak)
+                target_params+=((1-polyak)*model_params)
         self.theta_.eval()
         return True
 
